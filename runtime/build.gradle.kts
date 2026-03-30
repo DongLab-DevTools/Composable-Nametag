@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     `maven-publish`
+    signing
 }
 
 android {
@@ -24,6 +25,7 @@ android {
     publishing {
         singleVariant("release") {
             withSourcesJar()
+            withJavadocJar()
         }
     }
 }
@@ -38,11 +40,10 @@ afterEvaluate {
     publishing {
         publications {
             create<MavenPublication>("release") {
-                groupId = "com.donglab.compose.debug"
-                artifactId = "compose-debug-overlay-runtime"
-                version = "1.0.0"
                 from(components["release"])
             }
         }
     }
+
+    configurePublishing(artifactId = "compose-debug-overlay-runtime")
 }
