@@ -19,16 +19,12 @@ Composable-Nametag/
 ### 1. 플러그인 적용
 
 ```kotlin
-// settings.gradle.kts
-pluginManagement {
-    repositories {
-        mavenLocal() // 또는 배포된 Maven repo
-    }
-}
-
-// app/build.gradle.kts
+// Compose를 사용하는 모듈의 build.gradle.kts
+// ⚠️ compose 플러그인보다 먼저 선언해야 합니다
 plugins {
     id("com.donglab.compose.debug.overlay") version "1.0.0"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
+    // ...
 }
 ```
 
