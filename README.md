@@ -18,13 +18,40 @@ Composable-Nametag/
 
 ### 1. 플러그인 적용
 
+Compose를 사용하는 모듈에 적용합니다. **compose 플러그인보다 먼저 선언해야 합니다.**
+
+#### 방법 A. `plugins {}` 블록으로 직접 적용
+
 ```kotlin
 // Compose를 사용하는 모듈의 build.gradle.kts
-// ⚠️ compose 플러그인보다 먼저 선언해야 합니다
 plugins {
-    id("com.donglab.compose.debug.overlay") version "1.0.0"
+    id("com.donglab.compose.debug.overlay") version "1.0.0" // compose 플러그인보다 먼저
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
     // ...
+}
+```
+
+#### 방법 B. Convention Plugin을 통한 적용
+
+build-logic 등 Convention Plugin 구조를 사용하는 프로젝트에서는 플러그인 아티팩트를 의존성으로 추가한 뒤 Convention Plugin 내부에서 적용합니다.
+
+```kotlin
+// build-logic/build.gradle.kts
+dependencies {
+    implementation("com.donglab.compose.debug:compose-debug-overlay-gradle:1.0.0")
+}
+```
+
+```kotlin
+// Convention Plugin 내부 (예: AndroidComposeConventionPlugin.kt)
+class AndroidComposeConventionPlugin : Plugin<Project> {
+    override fun apply(target: Project) {
+        with(target) {
+            pluginManager.apply("com.donglab.compose.debug.overlay") // compose 플러그인보다 먼저
+            pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
+            // ...
+        }
+    }
 }
 ```
 
