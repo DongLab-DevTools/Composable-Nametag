@@ -18,7 +18,8 @@ Composable-Nametag/
 
 ### 1. 플러그인 적용
 
-Compose를 사용하는 모듈에 적용합니다. **compose 플러그인보다 먼저 선언해야 합니다.**
+> [!warning]
+> Compose를 사용하는 모듈에 적용합니다. **compose 플러그인보다 먼저 선언해야 합니다.**
 
 #### 방법 A. `plugins {}` 블록으로 직접 적용
 
