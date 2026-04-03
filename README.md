@@ -7,7 +7,8 @@
 
 ## Overview
 
-![sample](https://github.com/DongLab-DevTools/Composable-Nametag/blob/main/.github/docs/images/sample.png)
+<img width="2048" height="1152" alt="image" src="https://github.com/user-attachments/assets/7043eb0a-0571-4709-b2b8-787bdf1d40b6" />
+
 
 <br>
 <br>
@@ -16,6 +17,11 @@ Composable-Nametag is a debug tool that overlays the name of every `@Composable`
 
 **Without modifying any existing code**, the Kotlin Compiler Plugin (KCP) automatically injects labels at compile time.
 When disabled, the plugin has zero runtime overhead.
+
+<br>
+
+## Screenshots
+<img width="2048" height="1333" alt="image" src="https://github.com/user-attachments/assets/7d1f5e8a-0263-4db2-b7ef-350f666782d0" />
 
 <br>
 
