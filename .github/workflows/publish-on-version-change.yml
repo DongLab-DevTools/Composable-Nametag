@@ -74,9 +74,27 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # compiler + runtime 배포
-      - name: Publish compiler and runtime to Maven Central
-        run: ./gradlew :compiler:publishAndReleaseToMavenCentral :runtime:publishAndReleaseToMavenCentral
+      # runtime 배포
+      - name: Publish runtime to Maven Central
+        run: ./gradlew :runtime:publishAndReleaseToMavenCentral
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+
+      # compiler 배포 — 지원하는 모든 Kotlin 버전별로 빌드 및 배포
+      - name: Publish compiler for all supported Kotlin versions
+        run: |
+          KOTLIN_VERSIONS=("2.1.21" "2.2.0" "2.2.10" "2.2.20" "2.2.21" "2.3.0" "2.3.10" "2.3.20")
+          for VER in "${KOTLIN_VERSIONS[@]}"; do
+            echo "=========================================="
+            echo "Publishing compiler for Kotlin $VER"
+            echo "=========================================="
+            ./gradlew :compiler:clean :compiler:publishAndReleaseToMavenCentral \
+              -PtargetKotlinVersion="$VER"
+          done
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}

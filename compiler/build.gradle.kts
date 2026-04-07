@@ -3,19 +3,31 @@ plugins {
     alias(libs.plugins.vanniktech.maven.publish)
 }
 
+val targetKotlinVersion: String = findProperty("targetKotlinVersion") as? String
+    ?: libs.versions.kotlin.get()
+
 dependencies {
-    compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:${libs.versions.kotlin.get()}")
+    compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:$targetKotlinVersion")
 }
 
 kotlin {
     jvmToolchain(21)
+
+    sourceSets.main {
+        kotlin.srcDir(
+            when {
+                targetKotlinVersion.startsWith("2.3") -> "src/main/kotlin-2.3"
+                else -> "src/main/kotlin-2.1"
+            }
+        )
+    }
 }
 
 mavenPublishing {
     coordinates(
         groupId = property("GROUP") as String,
         artifactId = "composable-nametag-compiler",
-        version = property("VERSION") as String,
+        version = "$targetKotlinVersion-${property("VERSION") as String}",
     )
 
     pom {

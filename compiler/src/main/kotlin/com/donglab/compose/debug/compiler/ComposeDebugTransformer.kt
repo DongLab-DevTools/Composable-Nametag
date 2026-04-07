@@ -4,11 +4,11 @@ import org.jetbrains.kotlin.backend.common.IrElementTransformerVoidWithContext
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
 import org.jetbrains.kotlin.ir.IrStatement
-import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.builders.irString
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.expressions.IrBlockBody
+import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 import org.jetbrains.kotlin.ir.util.hasAnnotation
 import org.jetbrains.kotlin.name.CallableId
@@ -41,9 +41,14 @@ class ComposeDebugTransformer(
         val body = declaration.body as? IrBlockBody ?: return result
 
         val builder = DeclarationIrBuilder(pluginContext, declaration.symbol)
-        val debugCall = builder.irCall(fnSymbol).apply {
-            putValueArgument(0, builder.irString(functionName))
-        }
+        val debugCall = IrCallImpl(
+            startOffset = builder.startOffset,
+            endOffset = builder.endOffset,
+            type = pluginContext.irBuiltIns.unitType,
+            symbol = fnSymbol,
+            typeArgumentsCount = 0,
+        )
+        debugCall.arguments[0] = builder.irString(functionName)
 
         body.statements.add(0, debugCall)
         return result
