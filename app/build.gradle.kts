@@ -1,8 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    id("io.github.dongx0915.composable.nametag")
     alias(libs.plugins.kotlin.compose)
-    id("com.donglab.compose.debug.overlay")
 }
 
 android {

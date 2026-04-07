@@ -2,7 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    `maven-publish`
+    alias(libs.plugins.vanniktech.maven.publish)
 }
 
 android {
@@ -20,12 +20,6 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-
-    publishing {
-        singleVariant("release") {
-            withSourcesJar()
-        }
-    }
 }
 
 dependencies {
@@ -34,15 +28,41 @@ dependencies {
     implementation(libs.androidx.compose.material3)
 }
 
-afterEvaluate {
-    publishing {
-        publications {
-            create<MavenPublication>("release") {
-                groupId = "com.donglab.compose.debug"
-                artifactId = "compose-debug-overlay-runtime"
-                version = "1.0.0"
-                from(components["release"])
+mavenPublishing {
+    coordinates(
+        groupId = property("GROUP") as String,
+        artifactId = "composable-nametag-runtime",
+        version = property("VERSION") as String,
+    )
+
+    pom {
+        name.set("Composable-Nametag — Runtime")
+        description.set("Runtime library that provides debug overlay UI for displaying @Composable function names")
+        url.set("https://github.com/DongLab-DevTools/Composable-Nametag")
+        inceptionYear.set("2025")
+
+        licenses {
+            license {
+                name.set("The Apache Software License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
+
+        developers {
+            developer {
+                id.set("dongx0915")
+                name.set("Donghyeon Kim")
+                email.set("donghyeon0915@gmail.com")
+            }
+        }
+
+        scm {
+            url.set("https://github.com/DongLab-DevTools/Composable-Nametag")
+            connection.set("scm:git:git://github.com/DongLab-DevTools/Composable-Nametag.git")
+            developerConnection.set("scm:git:ssh://git@github.com/DongLab-DevTools/Composable-Nametag.git")
+        }
     }
+
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
 }

@@ -121,11 +121,11 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
     }
 
     companion object {
-        private const val GROUP_ID = "com.donglab.compose.debug"
-        private const val COMPILER_PLUGIN_ID = "com.donglab.compose.debug.overlay.compiler"
-        private const val COMPILER_ARTIFACT_ID = "compose-debug-overlay-compiler"
-        private const val RUNTIME_ARTIFACT_ID = "compose-debug-overlay-runtime"
-        private const val VERSION = "1.0.0"
+        private const val GROUP_ID = "io.github.dongx0915.composable.nametag"
+        private const val COMPILER_PLUGIN_ID = "io.github.dongx0915.composable.nametag.compiler"
+        private const val COMPILER_ARTIFACT_ID = "composable-nametag-compiler"
+        private const val RUNTIME_ARTIFACT_ID = "composable-nametag-runtime"
+        private const val VERSION = "0.0.4-alpha01"
 
         /**
          * Kotlin versions that this compiler plugin has been tested against.

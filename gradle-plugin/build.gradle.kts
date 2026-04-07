@@ -1,11 +1,14 @@
 plugins {
     `kotlin-dsl`
     `java-gradle-plugin`
-    `maven-publish`
+    alias(libs.plugins.vanniktech.maven.publish)
 }
 
-group = "com.donglab.compose.debug"
-version = "1.0.0"
+val libGroup = providers.gradleProperty("GROUP").getOrElse("io.github.dongx0915.composable.nametag")
+val libVersion = providers.gradleProperty("VERSION").getOrElse("0.0.1")
+
+group = libGroup
+version = libVersion
 
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin-api:${libs.versions.kotlin.get()}")
@@ -14,19 +17,49 @@ dependencies {
 gradlePlugin {
     plugins {
         create("composeDebugOverlay") {
-            id = "com.donglab.compose.debug.overlay"
+            id = "io.github.dongx0915.composable.nametag"
             implementationClass = "com.donglab.compose.debug.gradle.ComposeDebugOverlayPlugin"
+            displayName = "Composable-Nametag"
+            description = "Kotlin Compiler Plugin that displays @Composable function names on screen for debugging"
         }
     }
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            groupId = "com.donglab.compose.debug"
-            artifactId = "compose-debug-overlay-gradle"
-            version = "1.0.0"
-            from(components["java"])
+mavenPublishing {
+    coordinates(
+        groupId = libGroup,
+        artifactId = "composable-nametag-gradle",
+        version = libVersion,
+    )
+
+    pom {
+        name.set("Composable-Nametag — Gradle Plugin")
+        description.set("Gradle plugin that auto-registers the Composable-Nametag compiler plugin and runtime")
+        url.set("https://github.com/DongLab-DevTools/Composable-Nametag")
+        inceptionYear.set("2025")
+
+        licenses {
+            license {
+                name.set("The Apache Software License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+
+        developers {
+            developer {
+                id.set("dongx0915")
+                name.set("Donghyeon Kim")
+                email.set("donghyeon0915@gmail.com")
+            }
+        }
+
+        scm {
+            url.set("https://github.com/DongLab-DevTools/Composable-Nametag")
+            connection.set("scm:git:git://github.com/DongLab-DevTools/Composable-Nametag.git")
+            developerConnection.set("scm:git:ssh://git@github.com/DongLab-DevTools/Composable-Nametag.git")
         }
     }
+
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
 }
