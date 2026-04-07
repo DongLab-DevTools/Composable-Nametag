@@ -45,7 +45,7 @@ It **must be declared before** the Compose plugin.
 ```kotlin
 // feature/home/build.gradle.kts (Compose module)
 plugins {
-    id("com.donglab.compose.debug.overlay") version "1.0.0" // Must be before the compose plugin
+    id("io.github.dongx0915.composable.nametag") version "0.0.4-alpha01" // Must be before the compose plugin
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
     // ...
 }
@@ -62,7 +62,7 @@ For projects using a Convention Plugin structure (e.g., `build-logic`):
 ```kotlin
 // build-logic/build.gradle.kts
 dependencies {
-    implementation("com.donglab.compose.debug:compose-debug-overlay-gradle:1.0.0")
+    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:0.0.4-alpha01")
 }
 ```
 
@@ -73,7 +73,7 @@ dependencies {
 class AndroidComposeConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
-            pluginManager.apply("com.donglab.compose.debug.overlay") // Must be before the compose plugin
+            pluginManager.apply("io.github.dongx0915.composable.nametag") // Must be before the compose plugin
             pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
             // ...
         }
