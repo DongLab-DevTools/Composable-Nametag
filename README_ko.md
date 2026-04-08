@@ -18,7 +18,7 @@
 
 Compose 화면에 표시되는 모든 `@Composable` 함수의 이름을 라벨로 오버레이하는 디버그 도구입니다.
 
-**기존 코드를 수정하지 않고**, Kotlin Compiler Plugin(KCP)이 컴파일 시점에 자동으로 주입합니다.
+**기존 코드를 수정하지 않고**, Kotlin Compiler Plugin(KCP)이 컴파일 시점에 자동으로 주입합니다.  
 각 Composable의 이름을 화면에서 직접 확인할 수 있어, 레이아웃 디버깅과 코드 리뷰가 빨라집니다.
 
 <br>
@@ -63,7 +63,7 @@ pluginManagement {
 ```kotlin
 // feature/home/build.gradle.kts (Compose 모듈)
 plugins {
-    id("io.github.dongx0915.composable.nametag") version "0.0.4-alpha03" // Compose 플러그인보다 먼저
+    id("io.github.dongx0915.composable.nametag") version "{library-version}" // Compose 플러그인보다 먼저
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
     // ...
 }
@@ -95,7 +95,7 @@ dependencyResolutionManagement {
 ```kotlin
 // build-logic/build.gradle.kts
 dependencies {
-    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:0.0.4-alpha03")
+    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:{library-version}")
 }
 ```
 
@@ -142,7 +142,9 @@ ComposeDebugConfig.enabled = true
 
 ## 동작 원리
 
-<img src="docs/architecture_ko.svg" width="100%" alt="Composable-Nametag 동작 원리" />
+<div align="center">
+    <img src="docs/architecture_ko.svg" width="700" alt="Composable-Nametag 동작 원리" />
+</div>
 
 <br>
 <br>
