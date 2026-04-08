@@ -1,97 +1,163 @@
 # Composable-Nametag
 
-Compose 화면에 표시되는 모든 `@Composable` 함수의 이름을 라벨로 오버레이하는 디버그 도구입니다.
+[![Hits](https://myhits.vercel.app/api/hit/https%3A%2F%2Fgithub.com%2FDongLab-DevTools%2FComposable-Nametag%3Ftab%3Dreadme-ov-file?color=blue&label=hits&size=small)](https://myhits.vercel.app)
+[![Platform](https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android)](https://developer.android.com)
+[![Min SDK](https://img.shields.io/badge/min%20sdk-24-green?style=flat-square)](https://developer.android.com)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.dongx0915.composable.nametag/composable-nametag-runtime)](https://central.sonatype.com/artifact/io.github.dongx0915.composable.nametag/composable-nametag-runtime)
+![GitHub stars](https://img.shields.io/github/stars/DongLab-DevTools/Composable-Nametag.svg)
 
-**기존 코드를 수정하지 않고**, Kotlin Compiler Plugin(KCP)이 컴파일 시점에 자동으로 주입합니다.
+**[한국어 README](./README_ko.md)**
 
-## 구조
+## Overview
 
-```
-Composable-Nametag/
-├── compiler/       ← Kotlin Compiler Plugin (IR Transformer)
-├── runtime/        ← Android Library (라벨 렌더링 + 토글)
-├── gradle-plugin/  ← Gradle Plugin (사용자 진입점)
-└── app/            ← 샘플 앱
-```
+<img width="2048" height="1152" alt="image" src="https://github.com/user-attachments/assets/7043eb0a-0571-4709-b2b8-787bdf1d40b6" />
 
-## 사용법
 
-### 1. 플러그인 적용
+<br>
+<br>
+
+Composable-Nametag is a debug tool that overlays the name of every `@Composable` function as a label on your screen.
+
+**Without modifying any existing code**, the Kotlin Compiler Plugin (KCP) automatically injects labels at compile time.
+When disabled, the plugin has zero runtime overhead.
+
+<br>
+
+## Screenshots
+<img width="2048" height="1333" alt="image" src="https://github.com/user-attachments/assets/7d1f5e8a-0263-4db2-b7ef-350f666782d0" />
+
+<br>
+
+## Features
+
+- **Zero-touch instrumentation**: The Kotlin Compiler Plugin injects labels at compile time — no manual code changes needed
+- **Zero overhead when disabled**: `ComposeDebugConfig.enabled = false` (default) skips all rendering immediately
+- **Smart filtering**: Only labels top-level Composable functions (PascalCase); skips lambdas, `remember`, property accessors, etc.
+- **Kotlin version safety**: Unsupported Kotlin versions disable only the compiler plugin — the build is never broken
+- **Colorful staggered labels**: Each function gets a distinct color and vertical offset to avoid overlap
+
+<br>
+
+## Installation
+
+### Option A. `plugins {}` block (standard)
+
+Apply the plugin in each **Compose module**'s `build.gradle.kts`.
+It **must be declared before** the Compose plugin.
 
 ```kotlin
-// settings.gradle.kts
-pluginManagement {
-    repositories {
-        mavenLocal() // 또는 배포된 Maven repo
+// feature/home/build.gradle.kts (Compose module)
+plugins {
+    id("io.github.dongx0915.composable.nametag") version "0.0.4-alpha03" // Must be before the compose plugin
+    id("org.jetbrains.kotlin.plugin.compose") version "2.1.21" // Use your project's Kotlin version
+    // ...
+}
+```
+
+> No additional `implementation` dependency is needed — the plugin adds the runtime library automatically.
+> The Gradle plugin **auto-detects** your project's Kotlin version and resolves the matching compiler artifact.
+
+### Option B. Convention Plugin
+
+For projects using a Convention Plugin structure (e.g., `build-logic`):
+
+**Step 1.** Add the plugin artifact to your `build-logic/build.gradle.kts`:
+
+```kotlin
+// build-logic/build.gradle.kts
+dependencies {
+    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:0.0.4-alpha03")
+}
+```
+
+**Step 2.** Apply it inside your Compose Convention Plugin, **before** the Compose plugin:
+
+```kotlin
+// e.g., AndroidComposeConventionPlugin.kt
+class AndroidComposeConventionPlugin : Plugin<Project> {
+    override fun apply(target: Project) {
+        with(target) {
+            pluginManager.apply("io.github.dongx0915.composable.nametag") // Must be before the compose plugin
+            pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
+            // ...
+        }
     }
 }
-
-// app/build.gradle.kts
-plugins {
-    id("com.donglab.compose.debug.overlay") version "1.0.0"
-}
 ```
 
-### 2. 활성화
+<br>
+
+### Requirements
+
+- Android API 24 (Android 7.0) or higher
+- Kotlin **2.1.21 ~ 2.3.20** (see [Supported Versions](#kotlin-version-compatibility))
+- Jetpack Compose (BOM 2025.05.01 or compatible)
+
+<br>
+
+## Usage
+
+### Enable the overlay
 
 ```kotlin
-// Application 또는 원하는 시점에서
+// Application class or wherever you want to toggle
 ComposeDebugConfig.enabled = true
 ```
 
-끝입니다. 모든 `@Composable` 함수에 이름 라벨이 표시됩니다.
+That's it. All `@Composable` function names will appear as labels on screen.
 
-## 동작 원리
+<br>
 
-```
-[ 컴파일 타임 ]
-@Composable
-fun HomeScreen() {
-    Column { ... }
-}
+## How It Works
 
-       ↓ KCP가 자동 변환
+<img src="docs/architecture_en.svg" width="100%" alt="How Composable-Nametag Works" />
 
-@Composable
-fun HomeScreen() {
-    __debugComposableName("HomeScreen")  ← 삽입됨
-    Column { ... }
-}
+<br>
 
-[ 런타임 ]
-enabled=true  → 라벨 표시
-enabled=false → 즉시 반환 (오버헤드 제로)
-```
+## Filtering Rules
 
-## 필터링 규칙
+| Condition | Behavior |
+|-----------|----------|
+| PascalCase `@Composable` | Label shown |
+| camelCase (remember, modifier, etc.) | Skipped |
+| Lambda / anonymous | Skipped |
+| Property accessor | Skipped |
+| `__` prefix | Skipped |
 
-| 조건 | 처리 |
-|------|------|
-| 대문자로 시작하는 @Composable | ✅ 라벨 표시 |
-| 소문자로 시작 (remember, modifier 등) | ❌ 스킵 |
-| 람다 / anonymous | ❌ 스킵 |
-| Property accessor | ❌ 스킵 |
-| `__` 접두사 | ❌ 스킵 |
+<br>
 
-## Kotlin 버전 호환성
+## Kotlin Version Compatibility
 
-컴파일러 플러그인은 Kotlin IR 내부 API를 사용하므로 버전 종속적입니다.
+The compiler plugin uses Kotlin IR internal APIs, so it is published **per Kotlin version**.
+The Gradle plugin auto-detects your Kotlin version and resolves the matching compiler artifact.
 
-- **지원 버전**: 2.1.21
-- **미지원 버전**: 경고 1회 출력 후 컴파일러 플러그인만 비활성화. 빌드는 정상 진행.
+| Kotlin Version | Supported |
+|---------------|-----------|
+| 2.1.21 | ✅ |
+| 2.2.0 | ✅ |
+| 2.2.10 | ✅ |
+| 2.2.20 | ✅ |
+| 2.2.21 | ✅ |
+| 2.3.0 | ✅ |
+| 2.3.10 | ✅ |
+| 2.3.20 | ✅ |
+
+- **Unsupported versions**: Logs a warning once and disables only the compiler plugin. The build proceeds normally.
 
 ```
 ⚠️  compose-debug-overlay: Kotlin X.Y.Z is not supported.
     → Your build and app are NOT affected.
 ```
 
-## 기술 스택
+<br>
 
-- Kotlin 2.1.21
+## Tech Stack
+
+- Kotlin 2.1.21 ~ 2.3.20
 - AGP 8.6.1
 - Compose BOM 2025.05.01
 - Gradle 8.7
 
-## 라이선스
+## License
 
 Apache License 2.0

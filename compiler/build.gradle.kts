@@ -1,26 +1,63 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
-    `maven-publish`
+    alias(libs.plugins.vanniktech.maven.publish)
 }
 
-group = "com.donglab.compose.debug"
-version = "1.0.0"
+val targetKotlinVersion: String = findProperty("targetKotlinVersion") as? String
+    ?: libs.versions.kotlin.get()
 
 dependencies {
-    compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:${libs.versions.kotlin.get()}")
+    compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:$targetKotlinVersion")
 }
 
 kotlin {
     jvmToolchain(21)
+
+    sourceSets.main {
+        kotlin.srcDir(
+            when {
+                targetKotlinVersion.startsWith("2.3") -> "src/main/kotlin-2.3"
+                else -> "src/main/kotlin-2.1"
+            }
+        )
+    }
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            groupId = "com.donglab.compose.debug"
-            artifactId = "compose-debug-overlay-compiler"
-            version = "1.0.0"
-            from(components["java"])
+mavenPublishing {
+    coordinates(
+        groupId = property("GROUP") as String,
+        artifactId = "composable-nametag-compiler",
+        version = "$targetKotlinVersion-${property("VERSION") as String}",
+    )
+
+    pom {
+        name.set("Composable-Nametag — Compiler")
+        description.set("Kotlin Compiler Plugin that displays @Composable function names on screen for debugging")
+        url.set("https://github.com/DongLab-DevTools/Composable-Nametag")
+        inceptionYear.set("2025")
+
+        licenses {
+            license {
+                name.set("The Apache Software License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+
+        developers {
+            developer {
+                id.set("dongx0915")
+                name.set("Donghyeon Kim")
+                email.set("donghyeon0915@gmail.com")
+            }
+        }
+
+        scm {
+            url.set("https://github.com/DongLab-DevTools/Composable-Nametag")
+            connection.set("scm:git:git://github.com/DongLab-DevTools/Composable-Nametag.git")
+            developerConnection.set("scm:git:ssh://git@github.com/DongLab-DevTools/Composable-Nametag.git")
         }
     }
+
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
 }
