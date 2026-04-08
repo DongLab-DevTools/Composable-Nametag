@@ -29,7 +29,6 @@ See each Composable's name directly on screen, making layout debugging and code 
 </div>
 
 <br>
-<br>
 
 ## Features
 
@@ -45,6 +44,8 @@ See each Composable's name directly on screen, making layout debugging and code 
 
 ### Option A. `plugins {}` block (standard)
 
+<br>
+
 **Step 1.** Make sure Maven Central is included in your plugin repositories in `settings.gradle.kts`:
 
 ```kotlin
@@ -58,6 +59,8 @@ pluginManagement {
 }
 ```
 
+<br>
+
 **Step 2.** Apply the plugin in each **Compose module**'s `build.gradle.kts`.
 It **must be declared before** the Compose plugin.
 
@@ -70,13 +73,17 @@ plugins {
 }
 ```
 
+> [!note]
 > No additional `implementation` dependency is needed — the plugin adds the runtime library automatically.
 
+<br>
 <br>
 
 ### Option B. Convention Plugin
 
 For projects using a Convention Plugin structure (e.g., `build-logic`):
+
+<br>
 
 **Step 1.** Make sure Maven Central is included in your repositories in `build-logic/settings.gradle.kts`:
 
@@ -91,6 +98,8 @@ dependencyResolutionManagement {
 }
 ```
 
+<br>
+
 **Step 2.** Add the plugin artifact to your `build-logic/build.gradle.kts`:
 
 ```kotlin
@@ -99,6 +108,8 @@ dependencies {
     implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:{library-version}")
 }
 ```
+
+<br>
 
 **Step 3.** Apply it inside your Compose Convention Plugin, **before** the Compose plugin:
 
@@ -148,6 +159,7 @@ That's it. All `@Composable` function names will appear as labels on screen.
 </div>
 
 <br>
+<br>
 
 ## Filtering Rules
 
@@ -194,6 +206,9 @@ The Gradle plugin auto-detects your Kotlin version and resolves the matching com
 - AGP 8.6.1
 - Compose BOM 2025.05.01
 - Gradle 8.7
+
+<br>
+<br>
 
 ## License
 
