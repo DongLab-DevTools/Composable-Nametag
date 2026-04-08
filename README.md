@@ -48,13 +48,14 @@ It **must be declared before** the Compose plugin.
 ```kotlin
 // feature/home/build.gradle.kts (Compose module)
 plugins {
-    id("io.github.dongx0915.composable.nametag") version "0.0.4-alpha01" // Must be before the compose plugin
-    id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
+    id("io.github.dongx0915.composable.nametag") version "0.0.4-alpha03" // Must be before the compose plugin
+    id("org.jetbrains.kotlin.plugin.compose") version "2.1.21" // Use your project's Kotlin version
     // ...
 }
 ```
 
 > No additional `implementation` dependency is needed — the plugin adds the runtime library automatically.
+> The Gradle plugin **auto-detects** your project's Kotlin version and resolves the matching compiler artifact.
 
 ### Option B. Convention Plugin
 
@@ -65,7 +66,7 @@ For projects using a Convention Plugin structure (e.g., `build-logic`):
 ```kotlin
 // build-logic/build.gradle.kts
 dependencies {
-    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:0.0.4-alpha01")
+    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:0.0.4-alpha03")
 }
 ```
 
@@ -89,7 +90,7 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
 ### Requirements
 
 - Android API 24 (Android 7.0) or higher
-- Kotlin 2.1.21
+- Kotlin **2.1.21 ~ 2.3.20** (see [Supported Versions](#kotlin-version-compatibility))
 - Jetpack Compose (BOM 2025.05.01 or compatible)
 
 <br>
@@ -109,25 +110,7 @@ That's it. All `@Composable` function names will appear as labels on screen.
 
 ## How It Works
 
-```
-[ Compile time ]
-@Composable
-fun HomeScreen() {
-    Column { ... }
-}
-
-       ↓ KCP auto-transforms
-
-@Composable
-fun HomeScreen() {
-    __debugComposableName("HomeScreen")  ← injected
-    Column { ... }
-}
-
-[ Runtime ]
-enabled=true  → labels shown
-enabled=false → immediate return (zero overhead)
-```
+<img src="docs/architecture_en.svg" width="100%" alt="How Composable-Nametag Works" />
 
 <br>
 
@@ -145,10 +128,21 @@ enabled=false → immediate return (zero overhead)
 
 ## Kotlin Version Compatibility
 
-The compiler plugin uses Kotlin IR internal APIs, so it is version-dependent.
+The compiler plugin uses Kotlin IR internal APIs, so it is published **per Kotlin version**.
+The Gradle plugin auto-detects your Kotlin version and resolves the matching compiler artifact.
 
-- **Supported**: 2.1.21
-- **Unsupported**: Logs a warning once and disables only the compiler plugin. The build proceeds normally.
+| Kotlin Version | Supported |
+|---------------|-----------|
+| 2.1.21 | ✅ |
+| 2.2.0 | ✅ |
+| 2.2.10 | ✅ |
+| 2.2.20 | ✅ |
+| 2.2.21 | ✅ |
+| 2.3.0 | ✅ |
+| 2.3.10 | ✅ |
+| 2.3.20 | ✅ |
+
+- **Unsupported versions**: Logs a warning once and disables only the compiler plugin. The build proceeds normally.
 
 ```
 ⚠️  compose-debug-overlay: Kotlin X.Y.Z is not supported.
@@ -159,7 +153,7 @@ The compiler plugin uses Kotlin IR internal APIs, so it is version-dependent.
 
 ## Tech Stack
 
-- Kotlin 2.1.21
+- Kotlin 2.1.21 ~ 2.3.20
 - AGP 8.6.1
 - Compose BOM 2025.05.01
 - Gradle 8.7

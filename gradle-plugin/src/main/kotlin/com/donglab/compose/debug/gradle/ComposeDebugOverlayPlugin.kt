@@ -20,39 +20,37 @@ import org.jetbrains.kotlin.gradle.plugin.SubpluginOption
  * - The runtime library is still added (`__debugComposableName()` is never called → zero impact)
  * - **Build is never broken** by this plugin
  *
+ * ## Versioning
+ * The compiler artifact uses `{kotlin-version}-{library-version}` format (e.g. `2.1.21-0.0.4-alpha01`),
+ * similar to KSP. The Gradle plugin automatically resolves the correct compiler version
+ * based on the project's Kotlin version.
+ *
  * Usage:
  * ```kotlin
  * plugins {
- *     id("com.donglab.compose.debug.overlay") version "1.0.0"
+ *     id("io.github.dongx0915.composable.nametag") version "0.0.4-alpha01"
  * }
  * ```
  */
 class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
 
+    private var resolvedKotlinVersion: String? = null
+
     override fun apply(target: Project) {
         super.apply(target)
 
-        // Always add runtime dependency regardless of Kotlin version compatibility.
-        // This ensures ComposeDebugConfig and __debugComposableName are on the classpath
-        // even when the compiler plugin is disabled.
-        // When disabled: __debugComposableName() is never called → zero overhead.
-        // When enabled: compiler injects calls → labels appear on screen.
         target.dependencies.add(
             "implementation",
             "$GROUP_ID:$RUNTIME_ARTIFACT_ID:$VERSION",
         )
     }
 
-    /**
-     * Determines whether the compiler plugin is applied to this compilation.
-     * Returns false for unsupported Kotlin versions → compiler plugin is skipped entirely.
-     */
     override fun isApplicable(kotlinCompilation: KotlinCompilation<*>): Boolean {
         val project = kotlinCompilation.target.project
         val kotlinVersion = project.resolveKotlinVersion()
+        resolvedKotlinVersion = kotlinVersion
         val isSupported = kotlinVersion in SUPPORTED_KOTLIN_VERSIONS
 
-        // Log warning once per build (using root project extra property)
         val root = project.rootProject
         val warnKey = "compose.debug.overlay.warned"
         val alreadyWarned = root.extensions.extraProperties.has(warnKey)
@@ -61,9 +59,9 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
             project.logger.warn(
                 buildString {
                     appendLine()
-                    appendLine("⚠️  compose-debug-overlay: Kotlin $kotlinVersion is not supported.")
+                    appendLine("⚠️  composable-nametag: Kotlin $kotlinVersion is not supported.")
                     appendLine("    Supported versions: $SUPPORTED_KOTLIN_VERSIONS")
-                    appendLine("    The debug overlay compiler plugin will be DISABLED for this build.")
+                    appendLine("    The compiler plugin will be DISABLED for this build.")
                     appendLine("    The runtime library is still included but has no effect (zero overhead).")
                     appendLine("    → Your build and app are NOT affected.")
                 }
@@ -75,11 +73,14 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
 
     override fun getCompilerPluginId(): String = COMPILER_PLUGIN_ID
 
-    override fun getPluginArtifact(): SubpluginArtifact = SubpluginArtifact(
-        groupId = GROUP_ID,
-        artifactId = COMPILER_ARTIFACT_ID,
-        version = VERSION,
-    )
+    override fun getPluginArtifact(): SubpluginArtifact {
+        val kotlinVersion = resolvedKotlinVersion ?: "2.1.21"
+        return SubpluginArtifact(
+            groupId = GROUP_ID,
+            artifactId = COMPILER_ARTIFACT_ID,
+            version = "$kotlinVersion-$VERSION",
+        )
+    }
 
     override fun applyToCompilation(
         kotlinCompilation: KotlinCompilation<*>,
@@ -87,10 +88,6 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
         return kotlinCompilation.target.project.provider { emptyList() }
     }
 
-    /**
-     * Resolves the Kotlin plugin version from the project.
-     * Falls back to "unknown" if detection fails — which triggers the fallback path.
-     */
     private fun Project.resolveKotlinVersion(): String {
         return try {
             val ext = extensions.findByName("kotlin")
@@ -125,21 +122,12 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
         private const val COMPILER_PLUGIN_ID = "io.github.dongx0915.composable.nametag.compiler"
         private const val COMPILER_ARTIFACT_ID = "composable-nametag-compiler"
         private const val RUNTIME_ARTIFACT_ID = "composable-nametag-runtime"
-        private const val VERSION = "0.0.4-alpha01"
+        private const val VERSION = "0.0.4-alpha03"
 
-        /**
-         * Kotlin versions that this compiler plugin has been tested against.
-         * The IR API (`irCall`, `IrBlockBody`, etc.) can change between minor versions,
-         * so we only enable the compiler plugin for known-good versions.
-         *
-         * To add support for a new version:
-         * 1. Build the compiler module against that Kotlin version
-         * 2. Run the sample app to verify no NoSuchMethodError / internal compiler errors
-         * 3. Add the version string here
-         */
         val SUPPORTED_KOTLIN_VERSIONS = setOf(
             "2.1.21",
+            "2.2.0", "2.2.10", "2.2.20", "2.2.21",
+            "2.3.0", "2.3.10", "2.3.20",
         )
-
     }
 }
