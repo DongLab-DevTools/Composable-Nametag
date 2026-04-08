@@ -64,7 +64,7 @@ It **must be declared before** the Compose plugin.
 ```kotlin
 // feature/home/build.gradle.kts (Compose module)
 plugins {
-    id("io.github.dongx0915.composable.nametag") version "0.0.4-alpha03" // Must be before the Compose plugin
+    id("io.github.dongx0915.composable.nametag") version "{library-version}" // Must be before the Compose plugin
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
     // ...
 }
@@ -96,7 +96,7 @@ dependencyResolutionManagement {
 ```kotlin
 // build-logic/build.gradle.kts
 dependencies {
-    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:0.0.4-alpha03")
+    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:{library-version}")
 }
 ```
 
@@ -143,7 +143,9 @@ That's it. All `@Composable` function names will appear as labels on screen.
 
 ## How It Works
 
-<img src="docs/architecture_en.svg" width="700" alt="How Composable-Nametag Works" />
+<div align="center">
+    <img src="docs/architecture_en.svg" width="700" alt="How Composable-Nametag Works" />
+</div>
 
 <br>
 
