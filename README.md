@@ -18,7 +18,7 @@
 
 Composable-Nametag is a debug tool that overlays the name of every `@Composable` function as a label on your screen.
 
-**Without modifying any existing code**, the Kotlin Compiler Plugin (KCP) automatically injects labels at compile time.
+**Without modifying any existing code**, the Kotlin Compiler Plugin (KCP) automatically injects labels at compile time.  
 See each Composable's name directly on screen, making layout debugging and code review faster.
 
 <br>
