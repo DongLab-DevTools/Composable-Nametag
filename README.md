@@ -24,8 +24,11 @@ When disabled, the plugin has zero runtime overhead.
 <br>
 
 ## Screenshots
-<img width="2048" height="1333" alt="image" src="https://github.com/user-attachments/assets/7d1f5e8a-0263-4db2-b7ef-350f666782d0" />
+<div align="center">
+    <img width="800" alt="image" src="https://github.com/user-attachments/assets/7d1f5e8a-0263-4db2-b7ef-350f666782d0" />
+</div>
 
+<br>
 <br>
 
 ## Features
@@ -36,6 +39,7 @@ When disabled, the plugin has zero runtime overhead.
 - **Kotlin version safety**: Unsupported Kotlin versions disable only the compiler plugin — the build is never broken
 - **Colorful staggered labels**: Each function gets a distinct color and vertical offset to avoid overlap
 
+<br>
 <br>
 
 ## Installation
@@ -56,6 +60,8 @@ plugins {
 
 > No additional `implementation` dependency is needed — the plugin adds the runtime library automatically.
 > The Gradle plugin **auto-detects** your project's Kotlin version and resolves the matching compiler artifact.
+
+<br>
 
 ### Option B. Convention Plugin
 
@@ -86,6 +92,7 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
 ```
 
 <br>
+<br>
 
 ### Requirements
 
@@ -93,6 +100,7 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
 - Kotlin **2.1.21 ~ 2.3.20** (see [Supported Versions](#kotlin-version-compatibility))
 - Jetpack Compose (BOM 2025.05.01 or compatible)
 
+<br>
 <br>
 
 ## Usage
@@ -107,10 +115,11 @@ ComposeDebugConfig.enabled = true
 That's it. All `@Composable` function names will appear as labels on screen.
 
 <br>
+<br>
 
 ## How It Works
 
-<img src="docs/architecture_en.svg" width="100%" alt="How Composable-Nametag Works" />
+<img src="docs/architecture_en.svg" width="700" alt="How Composable-Nametag Works" />
 
 <br>
 
@@ -124,6 +133,7 @@ That's it. All `@Composable` function names will appear as labels on screen.
 | Property accessor | Skipped |
 | `__` prefix | Skipped |
 
+<br>
 <br>
 
 ## Kotlin Version Compatibility
@@ -149,6 +159,7 @@ The Gradle plugin auto-detects your Kotlin version and resolves the matching com
     → Your build and app are NOT affected.
 ```
 
+<br>
 <br>
 
 ## Tech Stack
