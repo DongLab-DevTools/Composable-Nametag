@@ -134,6 +134,7 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
 - Android API 24 (Android 7.0) or higher
 - Kotlin **2.1.21 ~ 2.3.20** (see [Supported Versions](#kotlin-version-compatibility))
 - Jetpack Compose (BOM 2025.05.01 or compatible)
+- JDK 17+
 
 <br>
 <br>
