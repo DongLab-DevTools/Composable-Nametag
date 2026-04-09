@@ -10,6 +10,10 @@ val libVersion = providers.gradleProperty("VERSION").getOrElse("0.0.1")
 group = libGroup
 version = libVersion
 
+kotlin {
+    jvmToolchain(17)
+}
+
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin-api:${libs.versions.kotlin.get()}")
 }
