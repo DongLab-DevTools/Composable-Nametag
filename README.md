@@ -18,66 +18,107 @@
 
 Composable-Nametag is a debug tool that overlays the name of every `@Composable` function as a label on your screen.
 
-**Without modifying any existing code**, the Kotlin Compiler Plugin (KCP) automatically injects labels at compile time.
-When disabled, the plugin has zero runtime overhead.
+**Without modifying any existing code**, the Kotlin Compiler Plugin (KCP) automatically injects labels at compile time.  
+See each Composable's name directly on screen, making layout debugging and code review faster.
 
 <br>
 
 ## Screenshots
-<img width="2048" height="1333" alt="image" src="https://github.com/user-attachments/assets/7d1f5e8a-0263-4db2-b7ef-350f666782d0" />
+<div align="center">
+    <img width="800" alt="image" src="https://github.com/user-attachments/assets/7d1f5e8a-0263-4db2-b7ef-350f666782d0" />
+</div>
 
 <br>
 
 ## Features
 
-- **Zero-touch instrumentation**: The Kotlin Compiler Plugin injects labels at compile time — no manual code changes needed
-- **Zero overhead when disabled**: `ComposeDebugConfig.enabled = false` (default) skips all rendering immediately
-- **Smart filtering**: Only labels top-level Composable functions (PascalCase); skips lambdas, `remember`, property accessors, etc.
-- **Kotlin version safety**: Unsupported Kotlin versions disable only the compiler plugin — the build is never broken
-- **Colorful staggered labels**: Each function gets a distinct color and vertical offset to avoid overlap
+- **Auto injection** — The Compiler Plugin injects labels at compile time without touching your existing code.
+- **Zero overhead** — Works via IR transformation at compile time, so disabling it has no runtime impact.
+- **Noise filtering** — Only PascalCase Composables get labels; lambdas, `remember`, property accessors, etc. are ignored.
+- **Build safe** — Unsupported Kotlin versions only disable the compiler plugin — the build always succeeds.
 
+<br>
 <br>
 
 ## Installation
 
 ### Option A. `plugins {}` block (standard)
 
-Apply the plugin in each **Compose module**'s `build.gradle.kts`.
+<br>
+
+**Step 1.** Make sure Maven Central is included in your plugin repositories in `settings.gradle.kts`:
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()  // ← required
+        google()
+    }
+}
+```
+
+<br>
+
+**Step 2.** Apply the plugin in each **Compose module**'s `build.gradle.kts`.
 It **must be declared before** the Compose plugin.
 
 ```kotlin
 // feature/home/build.gradle.kts (Compose module)
 plugins {
-    id("io.github.dongx0915.composable.nametag") version "0.0.4-alpha03" // Must be before the compose plugin
-    id("org.jetbrains.kotlin.plugin.compose") version "2.1.21" // Use your project's Kotlin version
+    id("io.github.dongx0915.composable.nametag") version "{library-version}" // Must be before the Compose plugin
+    id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
     // ...
 }
 ```
 
+> [!note]
 > No additional `implementation` dependency is needed — the plugin adds the runtime library automatically.
-> The Gradle plugin **auto-detects** your project's Kotlin version and resolves the matching compiler artifact.
+
+<br>
+<br>
 
 ### Option B. Convention Plugin
 
 For projects using a Convention Plugin structure (e.g., `build-logic`):
 
-**Step 1.** Add the plugin artifact to your `build-logic/build.gradle.kts`:
+<br>
+
+**Step 1.** Make sure Maven Central is included in your repositories in `build-logic/settings.gradle.kts`:
+
+```kotlin
+// build-logic/settings.gradle.kts
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()  // ← required
+        google()
+        gradlePluginPortal()
+    }
+}
+```
+
+<br>
+
+**Step 2.** Add the plugin artifact to your `build-logic/build.gradle.kts`:
 
 ```kotlin
 // build-logic/build.gradle.kts
 dependencies {
-    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:0.0.4-alpha03")
+    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:{library-version}")
 }
 ```
 
-**Step 2.** Apply it inside your Compose Convention Plugin, **before** the Compose plugin:
+<br>
+
+**Step 3.** Apply it inside your Compose Convention Plugin, **before** the Compose plugin:
 
 ```kotlin
 // e.g., AndroidComposeConventionPlugin.kt
 class AndroidComposeConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
-            pluginManager.apply("io.github.dongx0915.composable.nametag") // Must be before the compose plugin
+            pluginManager.apply("io.github.dongx0915.composable.nametag") // Must be before the Compose plugin
             pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
             // ...
         }
@@ -86,13 +127,16 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
 ```
 
 <br>
+<br>
 
 ### Requirements
 
 - Android API 24 (Android 7.0) or higher
 - Kotlin **2.1.21 ~ 2.3.20** (see [Supported Versions](#kotlin-version-compatibility))
 - Jetpack Compose (BOM 2025.05.01 or compatible)
+- JDK 17+
 
+<br>
 <br>
 
 ## Usage
@@ -107,11 +151,15 @@ ComposeDebugConfig.enabled = true
 That's it. All `@Composable` function names will appear as labels on screen.
 
 <br>
+<br>
 
 ## How It Works
 
-<img src="docs/architecture_en.svg" width="100%" alt="How Composable-Nametag Works" />
+<div align="center">
+    <img src="docs/architecture_en.svg" width="700" alt="How Composable-Nametag Works" />
+</div>
 
+<br>
 <br>
 
 ## Filtering Rules
@@ -124,6 +172,7 @@ That's it. All `@Composable` function names will appear as labels on screen.
 | Property accessor | Skipped |
 | `__` prefix | Skipped |
 
+<br>
 <br>
 
 ## Kotlin Version Compatibility
@@ -150,6 +199,7 @@ The Gradle plugin auto-detects your Kotlin version and resolves the matching com
 ```
 
 <br>
+<br>
 
 ## Tech Stack
 
@@ -157,6 +207,9 @@ The Gradle plugin auto-detects your Kotlin version and resolves the matching com
 - AGP 8.6.1
 - Compose BOM 2025.05.01
 - Gradle 8.7
+
+<br>
+<br>
 
 ## License
 
