@@ -4,12 +4,12 @@ plugins {
     alias(libs.plugins.vanniktech.maven.publish)
 }
 
-// included build는 루트 gradle.properties를 자동으로 읽지 않으므로 직접 로드
-val rootProps = java.util.Properties().apply {
-    file("../gradle.properties").inputStream().use { load(it) }
-}
-val libGroup = rootProps.getProperty("GROUP", "io.github.dongx0915.composable.nametag")
-val libVersion = rootProps.getProperty("VERSION", "0.0.1")
+// included build는 루트 gradle.properties를 자동으로 읽지 않으므로 직접 파싱
+val rootProps = file("../gradle.properties").readLines()
+    .filter { it.contains("=") && !it.trimStart().startsWith("#") }
+    .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim() }
+val libGroup = rootProps["GROUP"] ?: "io.github.dongx0915.composable.nametag"
+val libVersion = rootProps["VERSION"] ?: "0.0.1"
 
 group = libGroup
 version = libVersion
@@ -20,7 +20,7 @@ kotlin {
 
 val generateVersionFile = tasks.register("generateVersionFile") {
     val outputDir = layout.buildDirectory.dir("generated/version")
-    val version = providers.gradleProperty("VERSION").getOrElse("0.0.1")
+    val version = libVersion
     outputs.dir(outputDir)
     inputs.property("version", version)
     doLast {
