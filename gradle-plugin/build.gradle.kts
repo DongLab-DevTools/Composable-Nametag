@@ -14,6 +14,30 @@ kotlin {
     jvmToolchain(17)
 }
 
+val generateVersionFile = tasks.register("generateVersionFile") {
+    val outputDir = layout.buildDirectory.dir("generated/version")
+    val version = providers.gradleProperty("VERSION").getOrElse("0.0.1")
+    outputs.dir(outputDir)
+    inputs.property("version", version)
+    doLast {
+        val dir = outputDir.get().asFile.resolve("com/donglab/compose/debug/gradle")
+        dir.mkdirs()
+        dir.resolve("BuildConfig.kt").writeText(
+            """
+            package com.donglab.compose.debug.gradle
+
+            internal object BuildConfig {
+                const val VERSION = "$version"
+            }
+            """.trimIndent()
+        )
+    }
+}
+
+sourceSets["main"].java.srcDir(
+    generateVersionFile.map { it.outputs.files.singleFile }
+)
+
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin-api:${libs.versions.kotlin.get()}")
 }
