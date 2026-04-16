@@ -4,8 +4,12 @@ plugins {
     alias(libs.plugins.vanniktech.maven.publish)
 }
 
-val libGroup = providers.gradleProperty("GROUP").getOrElse("io.github.dongx0915.composable.nametag")
-val libVersion = providers.gradleProperty("VERSION").getOrElse("0.0.1")
+// included build는 루트 gradle.properties를 자동으로 읽지 않으므로 직접 로드
+val rootProps = java.util.Properties().apply {
+    file("../gradle.properties").inputStream().use { load(it) }
+}
+val libGroup = rootProps.getProperty("GROUP", "io.github.dongx0915.composable.nametag")
+val libVersion = rootProps.getProperty("VERSION", "0.0.1")
 
 group = libGroup
 version = libVersion
