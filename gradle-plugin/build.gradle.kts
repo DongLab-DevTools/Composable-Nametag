@@ -4,8 +4,12 @@ plugins {
     alias(libs.plugins.vanniktech.maven.publish)
 }
 
-val libGroup = providers.gradleProperty("GROUP").getOrElse("io.github.dongx0915.composable.nametag")
-val libVersion = providers.gradleProperty("VERSION").getOrElse("0.0.1")
+// included build는 루트 gradle.properties를 자동으로 읽지 않으므로 직접 파싱
+val rootProps = file("../gradle.properties").readLines()
+    .filter { it.contains("=") && !it.trimStart().startsWith("#") }
+    .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim() }
+val libGroup = findProperty("GROUP") as? String ?: rootProps["GROUP"] ?: "io.github.dongx0915.composable.nametag"
+val libVersion = findProperty("VERSION") as? String ?: rootProps["VERSION"] ?: "0.0.1"
 
 group = libGroup
 version = libVersion
@@ -14,6 +18,31 @@ kotlin {
     jvmToolchain(17)
 }
 
+val generateVersionFile = tasks.register("generateVersionFile") {
+    val outputDir = layout.buildDirectory.dir("generated/version")
+    val version = libVersion
+    outputs.dir(outputDir)
+    inputs.property("version", version)
+    doLast {
+        val dir = outputDir.get().asFile.resolve("com/donglab/compose/debug/gradle")
+        dir.mkdirs()
+        dir.resolve("BuildConfig.kt").writeText(
+            """
+            package com.donglab.compose.debug.gradle
+
+            internal object BuildConfig {
+                const val GROUP = "$libGroup"
+                const val VERSION = "$version"
+            }
+            """.trimIndent()
+        )
+    }
+}
+
+sourceSets["main"].java.srcDir(
+    generateVersionFile.map { it.outputs.files.singleFile }
+)
+
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin-api:${libs.versions.kotlin.get()}")
 }
@@ -21,7 +50,7 @@ dependencies {
 gradlePlugin {
     plugins {
         create("composeDebugOverlay") {
-            id = "io.github.dongx0915.composable.nametag"
+            id = libGroup
             implementationClass = "com.donglab.compose.debug.gradle.ComposeDebugOverlayPlugin"
             displayName = "Composable-Nametag"
             description = "Kotlin Compiler Plugin that displays @Composable function names on screen for debugging"
@@ -65,5 +94,20 @@ mavenPublishing {
     }
 
     publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
-    signAllPublications()
+    if (providers.environmentVariable("ORG_GRADLE_PROJECT_signingInMemoryKey").isPresent) {
+        signAllPublications()
+    }
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY") ?: return@maven}")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: ""
+                password = System.getenv("GITHUB_TOKEN") ?: ""
+            }
+        }
+    }
 }

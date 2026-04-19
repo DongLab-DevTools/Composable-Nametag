@@ -1,5 +1,7 @@
-# gradle.properties의 VERSION 변경 시 자동으로 Maven Central에 배포하는 워크플로우
-name: Publish to Maven Central on Version Change
+# gradle.properties의 VERSION 변경 시 자동으로 GitHub Packages에 배포하는 워크플로우
+# GROUP은 repository variable(GROUP_OVERRIDE)로 오버라이드 가능
+# Settings → Secrets and variables → Actions → Variables 에서 설정
+name: Publish to GitHub Packages on Version Change
 
 on:
   push:
@@ -10,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   GROUP_ARG: ${{ vars.GROUP_OVERRIDE && format('-PGROUP={0}', vars.GROUP_OVERRIDE) || '' }}
@@ -49,7 +52,7 @@ jobs:
 
   publish-runtime:
     needs: check-version-change
-    if: needs.check-version-change.outputs.version-changed == 'true' && vars.MAVEN_CENTRAL_ENABLED != 'false'
+    if: needs.check-version-change.outputs.version-changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,17 +62,13 @@ jobs:
           distribution: 'temurin'
       - run: chmod +x gradlew
       - name: Publish runtime
-        run: ./gradlew :runtime:publishAndReleaseToMavenCentral ${{ env.GROUP_ARG }}
+        run: ./gradlew :runtime:publishMavenPublicationToGitHubPackagesRepository ${{ env.GROUP_ARG }}
         env:
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-compiler:
     needs: check-version-change
-    if: needs.check-version-change.outputs.version-changed == 'true' && vars.MAVEN_CENTRAL_ENABLED != 'false'
+    if: needs.check-version-change.outputs.version-changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -86,19 +85,15 @@ jobs:
         run: sed -i "s/^kotlin = \".*\"/kotlin = \"2.3.0\"/" gradle/libs.versions.toml
       - name: Publish compiler for Kotlin ${{ matrix.kotlin }}
         run: |
-          ./gradlew :compiler:publishAndReleaseToMavenCentral \
+          ./gradlew :compiler:publishMavenPublicationToGitHubPackagesRepository \
             -PtargetKotlinVersion="${{ matrix.kotlin }}" \
             ${{ env.GROUP_ARG }}
         env:
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-gradle-plugin:
     needs: check-version-change
-    if: needs.check-version-change.outputs.version-changed == 'true' && vars.MAVEN_CENTRAL_ENABLED != 'false'
+    if: needs.check-version-change.outputs.version-changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,34 +104,6 @@ jobs:
       - run: chmod +x gradlew
       - name: Publish gradle-plugin
         working-directory: gradle-plugin
-        run: ../gradlew publishAndReleaseToMavenCentral ${{ env.GROUP_ARG }}
-        env:
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
-
-  create-release:
-    needs: [check-version-change, publish-runtime, publish-compiler, publish-gradle-plugin]
-    if: needs.check-version-change.outputs.version-changed == 'true' && vars.MAVEN_CENTRAL_ENABLED != 'false'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.check-version-change.outputs.new-version }}
-          name: Release ${{ needs.check-version-change.outputs.new-version }}
-          body: |
-            SDK version updated to ${{ needs.check-version-change.outputs.new-version }}
-
-            Published to Maven Central automatically.
-
-            **사용 방법**
-            - 자세한 사용법은 [README](https://github.com/${{ github.repository }}/blob/main/README.md)를 참고하세요.
-
-          draft: false
-          prerelease: false
+        run: ../gradlew publishPluginMavenPublicationToGitHubPackagesRepository ${{ env.GROUP_ARG }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
