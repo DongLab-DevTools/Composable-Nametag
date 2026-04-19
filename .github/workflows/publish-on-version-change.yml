@@ -12,6 +12,9 @@ on:
 permissions:
   contents: write
 
+env:
+  GROUP_ARG: ${{ vars.GROUP_OVERRIDE && format('-PGROUP={0}', vars.GROUP_OVERRIDE) || '' }}
+
 jobs:
   # 첫 번째 작업: VERSION이 실제로 변경되었는지 확인
   check-version-change:
@@ -76,7 +79,7 @@ jobs:
 
       # runtime 배포
       - name: Publish runtime to Maven Central
-        run: ./gradlew :runtime:publishAndReleaseToMavenCentral
+        run: ./gradlew :runtime:publishAndReleaseToMavenCentral ${{ env.GROUP_ARG }}
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}
@@ -102,7 +105,8 @@ jobs:
               sed -i "s/^kotlin = \".*\"/kotlin = \"$ORIGINAL_KOTLIN\"/" "$TOML_FILE"
             fi
             ./gradlew :compiler:clean :compiler:publishAndReleaseToMavenCentral \
-              -PtargetKotlinVersion="$VER"
+              -PtargetKotlinVersion="$VER" \
+              ${{ env.GROUP_ARG }}
           done
           # 원래 Kotlin 버전 복원
           sed -i "s/^kotlin = \".*\"/kotlin = \"$ORIGINAL_KOTLIN\"/" "$TOML_FILE"
@@ -116,7 +120,7 @@ jobs:
       # gradle-plugin 배포 (included build이므로 별도 실행)
       - name: Publish gradle-plugin to Maven Central
         working-directory: gradle-plugin
-        run: ../gradlew publishAndReleaseToMavenCentral
+        run: ../gradlew publishAndReleaseToMavenCentral ${{ env.GROUP_ARG }}
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}

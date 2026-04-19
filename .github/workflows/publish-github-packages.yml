@@ -1,5 +1,6 @@
 # gradle.properties의 VERSION 변경 시 자동으로 GitHub Packages에 배포하는 워크플로우
-# GROUP은 -P 옵션으로 오버라이드 가능 (회사 repo에서 다른 group ID 사용 시)
+# GROUP은 repository variable(GROUP_OVERRIDE)로 오버라이드 가능
+# Settings → Secrets and variables → Actions → Variables 에서 설정
 name: Publish to GitHub Packages on Version Change
 
 on:
@@ -12,6 +13,9 @@ on:
 permissions:
   contents: write
   packages: write
+
+env:
+  GROUP_ARG: ${{ vars.GROUP_OVERRIDE && format('-PGROUP={0}', vars.GROUP_OVERRIDE) || '' }}
 
 jobs:
   check-version-change:
@@ -75,7 +79,7 @@ jobs:
 
       # runtime 배포
       - name: Publish runtime to GitHub Packages
-        run: ./gradlew :runtime:publishMavenPublicationToGitHubPackagesRepository
+        run: ./gradlew :runtime:publishMavenPublicationToGitHubPackagesRepository ${{ env.GROUP_ARG }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -96,7 +100,8 @@ jobs:
               sed -i "s/^kotlin = \".*\"/kotlin = \"$ORIGINAL_KOTLIN\"/" "$TOML_FILE"
             fi
             ./gradlew :compiler:clean :compiler:publishMavenPublicationToGitHubPackagesRepository \
-              -PtargetKotlinVersion="$VER"
+              -PtargetKotlinVersion="$VER" \
+              ${{ env.GROUP_ARG }}
           done
           sed -i "s/^kotlin = \".*\"/kotlin = \"$ORIGINAL_KOTLIN\"/" "$TOML_FILE"
         env:
@@ -105,6 +110,6 @@ jobs:
       # gradle-plugin 배포 (included build이므로 별도 실행)
       - name: Publish gradle-plugin to GitHub Packages
         working-directory: gradle-plugin
-        run: ../gradlew publishPluginMavenPublicationToGitHubPackagesRepository
+        run: ../gradlew publishPluginMavenPublicationToGitHubPackagesRepository ${{ env.GROUP_ARG }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
