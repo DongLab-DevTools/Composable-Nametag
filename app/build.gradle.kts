@@ -1,10 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    id("io.github.dongx0915.composable.nametag")
     alias(libs.plugins.kotlin.compose)
 }
-
-apply(plugin = property("GROUP") as String)
 
 android {
     namespace = "com.donglab.compose.kcp"
