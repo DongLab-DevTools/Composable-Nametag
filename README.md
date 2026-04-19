@@ -33,7 +33,8 @@ See each Composable's name directly on screen, making layout debugging and code 
 ## Features
 
 - **Auto injection** — The Compiler Plugin injects labels at compile time without touching your existing code.
-- **Zero overhead** — Works via IR transformation at compile time, so disabling it has no runtime impact.
+- **Debug only** — The compiler plugin and runtime are applied only to `debug` builds. Release builds contain zero library code — no IR injection, no runtime dependency.
+- **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all.
 - **Noise filtering** — Only PascalCase Composables get labels; lambdas, `remember`, property accessors, etc. are ignored.
 - **Build safe** — Unsupported Kotlin versions only disable the compiler plugin — the build always succeeds.
 
@@ -42,11 +43,13 @@ See each Composable's name directly on screen, making layout debugging and code 
 
 ## Installation
 
-### Option A. `plugins {}` block (standard)
+### Repository Setup
 
-<br>
+Choose one of the following depending on where the library is hosted.
 
-**Step 1.** Make sure Maven Central is included in your plugin repositories in `settings.gradle.kts`:
+#### Maven Central (default)
+
+Add `mavenCentral()` to your plugin repositories in `settings.gradle.kts`:
 
 ```kotlin
 // settings.gradle.kts
@@ -59,15 +62,49 @@ pluginManagement {
 }
 ```
 
+If using Convention Plugin, also add to `build-logic/settings.gradle.kts` `dependencyResolutionManagement.repositories`.
+
+#### GitHub Packages
+
+The library is also available via GitHub Packages. Add the repository to `settings.gradle.kts`:
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        maven {
+            url = uri("https://maven.pkg.github.com/{owner}/{repo}")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
+                password = providers.gradleProperty("gpr.token").orNull ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
+}
+```
+
+If using Convention Plugin, also add the same `maven { ... }` block to `build-logic/settings.gradle.kts` `dependencyResolutionManagement.repositories`.
+
+> Set credentials in `~/.gradle/gradle.properties`:
+> ```properties
+> gpr.user=your-github-username
+> gpr.token=ghp_xxxxxxxxxxxxxxxxxxxx  # read:packages scope required
+> ```
+
+<br>
 <br>
 
-**Step 2.** Apply the plugin in each **Compose module**'s `build.gradle.kts`.
+### Option A. `plugins {}` block (standard)
+
+Apply the plugin in each **Compose module**'s `build.gradle.kts`.
 It **must be declared before** the Compose plugin.
 
 ```kotlin
 // feature/home/build.gradle.kts (Compose module)
 plugins {
-    id("io.github.dongx0915.composable.nametag") version "{library-version}" // Must be before the Compose plugin
+    id("{group-id}") version "{library-version}" // Must be before the Compose plugin
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
     // ...
 }
@@ -75,6 +112,8 @@ plugins {
 
 > [!note]
 > No additional `implementation` dependency is needed — the plugin adds the runtime library automatically.
+>
+> The `{group-id}` is the GROUP configured during publishing (e.g., `io.github.dongx0915.composable.nametag` for Maven Central).
 
 <br>
 <br>
@@ -85,40 +124,24 @@ For projects using a Convention Plugin structure (e.g., `build-logic`):
 
 <br>
 
-**Step 1.** Make sure Maven Central is included in your repositories in `build-logic/settings.gradle.kts`:
+**Step 1.** Add the plugin artifact to your `build-logic/convention/build.gradle.kts`:
 
 ```kotlin
-// build-logic/settings.gradle.kts
-dependencyResolutionManagement {
-    repositories {
-        mavenCentral()  // ← required
-        google()
-        gradlePluginPortal()
-    }
-}
-```
-
-<br>
-
-**Step 2.** Add the plugin artifact to your `build-logic/build.gradle.kts`:
-
-```kotlin
-// build-logic/build.gradle.kts
 dependencies {
-    implementation("io.github.dongx0915.composable.nametag:composable-nametag-gradle:{library-version}")
+    implementation("{group-id}:composable-nametag-gradle:{library-version}")
 }
 ```
 
 <br>
 
-**Step 3.** Apply it inside your Compose Convention Plugin, **before** the Compose plugin:
+**Step 2.** Apply it inside your Compose Convention Plugin, **before** the Compose plugin:
 
 ```kotlin
 // e.g., AndroidComposeConventionPlugin.kt
 class AndroidComposeConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
-            pluginManager.apply("io.github.dongx0915.composable.nametag") // Must be before the Compose plugin
+            pluginManager.apply("{group-id}") // Must be before the Compose plugin
             pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
             // ...
         }
@@ -197,6 +220,22 @@ The Gradle plugin auto-detects your Kotlin version and resolves the matching com
 ⚠️  compose-debug-overlay: Kotlin X.Y.Z is not supported.
     → Your build and app are NOT affected.
 ```
+
+<br>
+<br>
+
+## Release Safety
+
+Composable-Nametag is **completely excluded from release builds**:
+
+| | Debug Build | Release Build |
+|---|---|---|
+| Compiler Plugin (IR injection) | Active | Not applied |
+| Runtime Library (APK) | Included | Not included |
+
+- The Gradle plugin uses `debugImplementation` — the runtime library is not packaged into release APKs.
+- The compiler plugin's `isApplicable` returns `false` for non-debug compilations — no code is injected into release builds.
+- **Result**: Release APK contains zero traces of this library. No performance impact, no binary size increase.
 
 <br>
 <br>
