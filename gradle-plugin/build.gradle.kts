@@ -8,8 +8,8 @@ plugins {
 val rootProps = file("../gradle.properties").readLines()
     .filter { it.contains("=") && !it.trimStart().startsWith("#") }
     .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim() }
-val libGroup = rootProps["GROUP"] ?: "io.github.dongx0915.composable.nametag"
-val libVersion = rootProps["VERSION"] ?: "0.0.1"
+val libGroup = findProperty("GROUP") as? String ?: rootProps["GROUP"] ?: "io.github.dongx0915.composable.nametag"
+val libVersion = findProperty("VERSION") as? String ?: rootProps["VERSION"] ?: "0.0.1"
 
 group = libGroup
 version = libVersion
