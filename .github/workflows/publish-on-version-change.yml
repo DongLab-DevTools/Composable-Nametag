@@ -50,9 +50,10 @@ jobs:
           fi
 
   # 두 번째 작업: 버전이 변경된 경우에만 Maven Central에 배포
+  # Maven Central secrets가 없는 repo(회사 repo 등)에서는 자동 skip
   publish:
     needs: check-version-change
-    if: needs.check-version-change.outputs.version-changed == 'true'
+    if: needs.check-version-change.outputs.version-changed == 'true' && vars.MAVEN_CENTRAL_ENABLED != 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
