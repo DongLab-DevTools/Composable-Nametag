@@ -1,0 +1,90 @@
+# GitHub Packages로 배포하는 워크플로우
+# GROUP은 -P 옵션으로 오버라이드 가능 (회사 repo에서 다른 group ID 사용 시)
+name: Publish to GitHub Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'Group ID (빈 값이면 gradle.properties 사용)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Set GROUP override
+        id: group
+        run: |
+          if [ -n "${{ github.event.inputs.group }}" ]; then
+            echo "arg=-PGROUP=${{ github.event.inputs.group }}" >> $GITHUB_OUTPUT
+          else
+            echo "arg=" >> $GITHUB_OUTPUT
+          fi
+
+      # runtime 배포
+      - name: Publish runtime to GitHub Packages
+        run: |
+          ./gradlew :runtime:publishMavenPublicationToGitHubPackagesRepository \
+            ${{ steps.group.outputs.arg }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # compiler 배포 — 모든 Kotlin 버전
+      - name: Publish compiler for all supported Kotlin versions
+        run: |
+          KOTLIN_VERSIONS=("2.1.21" "2.2.0" "2.2.10" "2.2.20" "2.2.21" "2.3.0" "2.3.10" "2.3.20")
+          TOML_FILE="gradle/libs.versions.toml"
+          ORIGINAL_KOTLIN=$(grep '^kotlin = ' "$TOML_FILE" | sed 's/kotlin = "\(.*\)"/\1/')
+          for VER in "${KOTLIN_VERSIONS[@]}"; do
+            echo "=========================================="
+            echo "Publishing compiler for Kotlin $VER"
+            echo "=========================================="
+            if [[ "$VER" == 2.3.* ]]; then
+              sed -i "s/^kotlin = \".*\"/kotlin = \"2.3.0\"/" "$TOML_FILE"
+            else
+              sed -i "s/^kotlin = \".*\"/kotlin = \"$ORIGINAL_KOTLIN\"/" "$TOML_FILE"
+            fi
+            ./gradlew :compiler:clean :compiler:publishMavenPublicationToGitHubPackagesRepository \
+              -PtargetKotlinVersion="$VER" \
+              ${{ steps.group.outputs.arg }}
+          done
+          sed -i "s/^kotlin = \".*\"/kotlin = \"$ORIGINAL_KOTLIN\"/" "$TOML_FILE"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # gradle-plugin 배포
+      - name: Publish gradle-plugin to GitHub Packages
+        working-directory: gradle-plugin
+        run: |
+          ../gradlew publishPluginMavenPublicationToGitHubPackagesRepository \
+            ${{ steps.group.outputs.arg }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
