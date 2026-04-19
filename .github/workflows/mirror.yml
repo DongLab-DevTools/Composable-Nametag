@@ -12,8 +12,27 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Debug - Check secrets
+        run: |
+          if [ -z "${{ secrets.COMPANY_REPO }}" ]; then
+            echo "❌ COMPANY_REPO secret is empty!"
+          else
+            echo "✅ COMPANY_REPO is set (length: ${#COMPANY_REPO})"
+            echo "Value (masked): ${{ secrets.COMPANY_REPO }}"
+          fi
+          if [ -z "${{ secrets.COMPANY_REPO_TOKEN }}" ]; then
+            echo "❌ COMPANY_REPO_TOKEN secret is empty!"
+          else
+            echo "✅ COMPANY_REPO_TOKEN is set"
+          fi
+        env:
+          COMPANY_REPO: ${{ secrets.COMPANY_REPO }}
+
       - name: Push to company repo
         run: |
-          git remote add company https://x-access-token:${{ secrets.COMPANY_REPO_TOKEN }}@github.com/${{ secrets.COMPANY_REPO }}.git
+          REPO="${{ secrets.COMPANY_REPO }}"
+          echo "Target repo: ${#REPO} chars"
+          git remote add company "https://x-access-token:${{ secrets.COMPANY_REPO_TOKEN }}@github.com/${REPO}.git"
+          git remote -v
           git push company --all --force
           git push company --tags --force
