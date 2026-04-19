@@ -33,7 +33,8 @@ See each Composable's name directly on screen, making layout debugging and code 
 ## Features
 
 - **Auto injection** — The Compiler Plugin injects labels at compile time without touching your existing code.
-- **Zero overhead** — Works via IR transformation at compile time, so disabling it has no runtime impact.
+- **Debug only** — The compiler plugin and runtime are applied only to `debug` builds. Release builds contain zero library code — no IR injection, no runtime dependency.
+- **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all.
 - **Noise filtering** — Only PascalCase Composables get labels; lambdas, `remember`, property accessors, etc. are ignored.
 - **Build safe** — Unsupported Kotlin versions only disable the compiler plugin — the build always succeeds.
 
@@ -197,6 +198,22 @@ The Gradle plugin auto-detects your Kotlin version and resolves the matching com
 ⚠️  compose-debug-overlay: Kotlin X.Y.Z is not supported.
     → Your build and app are NOT affected.
 ```
+
+<br>
+<br>
+
+## Release Safety
+
+Composable-Nametag is **completely excluded from release builds**:
+
+| | Debug Build | Release Build |
+|---|---|---|
+| Compiler Plugin (IR injection) | Active | Not applied |
+| Runtime Library (APK) | Included | Not included |
+
+- The Gradle plugin uses `debugImplementation` — the runtime library is not packaged into release APKs.
+- The compiler plugin's `isApplicable` returns `false` for non-debug compilations — no code is injected into release builds.
+- **Result**: Release APK contains zero traces of this library. No performance impact, no binary size increase.
 
 <br>
 <br>
