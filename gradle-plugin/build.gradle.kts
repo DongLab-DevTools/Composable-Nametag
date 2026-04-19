@@ -31,6 +31,7 @@ val generateVersionFile = tasks.register("generateVersionFile") {
             package com.donglab.compose.debug.gradle
 
             internal object BuildConfig {
+                const val GROUP = "$libGroup"
                 const val VERSION = "$version"
             }
             """.trimIndent()

@@ -1,0 +1,19 @@
+# 개인 repo에 push 시 회사 repo로 자동 미러링
+name: Mirror to Company Repo
+
+on: push
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to company repo
+        run: |
+          git remote add company https://x-access-token:${{ secrets.COMPANY_REPO_TOKEN }}@github.com/${{ secrets.COMPANY_REPO }}.git
+          git push company --all --force
+          git push company --tags --force

@@ -122,8 +122,8 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
     }
 
     companion object {
-        private const val GROUP_ID = "io.github.dongx0915.composable.nametag"
-        private const val COMPILER_PLUGIN_ID = "io.github.dongx0915.composable.nametag.compiler"
+        private val GROUP_ID = BuildConfig.GROUP
+        private val COMPILER_PLUGIN_ID = "${BuildConfig.GROUP}.compiler"
         private const val COMPILER_ARTIFACT_ID = "composable-nametag-compiler"
         private const val RUNTIME_ARTIFACT_ID = "composable-nametag-runtime"
         private val VERSION = BuildConfig.VERSION
