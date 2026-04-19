@@ -1,21 +1,54 @@
-# GitHub Packages로 배포하는 워크플로우
+# gradle.properties의 VERSION 변경 시 자동으로 GitHub Packages에 배포하는 워크플로우
 # GROUP은 -P 옵션으로 오버라이드 가능 (회사 repo에서 다른 group ID 사용 시)
-name: Publish to GitHub Packages
+name: Publish to GitHub Packages on Version Change
 
 on:
-  workflow_dispatch:
-    inputs:
-      group:
-        description: 'Group ID (빈 값이면 gradle.properties 사용)'
-        required: false
-        default: ''
+  push:
+    branches:
+      - 'release/**'
+    paths:
+      - 'gradle.properties'
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
+  check-version-change:
+    runs-on: ubuntu-latest
+    outputs:
+      version-changed: ${{ steps.version-check.outputs.changed }}
+      new-version: ${{ steps.version-check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if VERSION changed
+        id: version-check
+        run: |
+          CURRENT_VERSION=$(grep "^VERSION=" gradle.properties | cut -d '=' -f 2)
+          echo "Current version: $CURRENT_VERSION"
+
+          git checkout HEAD~1 -- gradle.properties 2>/dev/null || echo "No previous version found"
+          PREVIOUS_VERSION=$(grep "^VERSION=" gradle.properties | cut -d '=' -f 2 2>/dev/null || echo "")
+          echo "Previous version: $PREVIOUS_VERSION"
+
+          git checkout HEAD -- gradle.properties
+
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ] && [ -n "$CURRENT_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version not changed"
+          fi
+
   publish:
+    needs: check-version-change
+    if: needs.check-version-change.outputs.version-changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -40,24 +73,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Set GROUP override
-        id: group
-        run: |
-          if [ -n "${{ github.event.inputs.group }}" ]; then
-            echo "arg=-PGROUP=${{ github.event.inputs.group }}" >> $GITHUB_OUTPUT
-          else
-            echo "arg=" >> $GITHUB_OUTPUT
-          fi
-
       # runtime 배포
       - name: Publish runtime to GitHub Packages
-        run: |
-          ./gradlew :runtime:publishMavenPublicationToGitHubPackagesRepository \
-            ${{ steps.group.outputs.arg }}
+        run: ./gradlew :runtime:publishMavenPublicationToGitHubPackagesRepository
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # compiler 배포 — 모든 Kotlin 버전
+      # compiler 배포 — 지원하는 모든 Kotlin 버전별로 빌드 및 배포
+      # 2.3.x 빌드 시 Kotlin 컴파일러 버전도 맞춰야 metadata 호환성 문제가 없음
       - name: Publish compiler for all supported Kotlin versions
         run: |
           KOTLIN_VERSIONS=("2.1.21" "2.2.0" "2.2.10" "2.2.20" "2.2.21" "2.3.0" "2.3.10" "2.3.20")
@@ -73,18 +96,15 @@ jobs:
               sed -i "s/^kotlin = \".*\"/kotlin = \"$ORIGINAL_KOTLIN\"/" "$TOML_FILE"
             fi
             ./gradlew :compiler:clean :compiler:publishMavenPublicationToGitHubPackagesRepository \
-              -PtargetKotlinVersion="$VER" \
-              ${{ steps.group.outputs.arg }}
+              -PtargetKotlinVersion="$VER"
           done
           sed -i "s/^kotlin = \".*\"/kotlin = \"$ORIGINAL_KOTLIN\"/" "$TOML_FILE"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # gradle-plugin 배포
+      # gradle-plugin 배포 (included build이므로 별도 실행)
       - name: Publish gradle-plugin to GitHub Packages
         working-directory: gradle-plugin
-        run: |
-          ../gradlew publishPluginMavenPublicationToGitHubPackagesRepository \
-            ${{ steps.group.outputs.arg }}
+        run: ../gradlew publishPluginMavenPublicationToGitHubPackagesRepository
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
