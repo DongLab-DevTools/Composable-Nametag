@@ -50,7 +50,7 @@ dependencies {
 gradlePlugin {
     plugins {
         create("composeDebugOverlay") {
-            id = "io.github.dongx0915.composable.nametag"
+            id = libGroup
             implementationClass = "com.donglab.compose.debug.gradle.ComposeDebugOverlayPlugin"
             displayName = "Composable-Nametag"
             description = "Kotlin Compiler Plugin that displays @Composable function names on screen for debugging"

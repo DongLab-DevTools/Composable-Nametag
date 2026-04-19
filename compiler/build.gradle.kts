@@ -10,6 +10,8 @@ dependencies {
     compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:$targetKotlinVersion")
 }
 
+val compilerGroup = property("GROUP") as String
+
 kotlin {
     jvmToolchain(17)
 
@@ -20,6 +22,14 @@ kotlin {
                 else -> "src/main/kotlin-2.1"
             }
         )
+    }
+}
+
+tasks.named<Copy>("processResources") {
+    val group = compilerGroup
+    inputs.property("group", group)
+    filesMatching("composable-nametag.properties") {
+        expand("GROUP" to group)
     }
 }
 
