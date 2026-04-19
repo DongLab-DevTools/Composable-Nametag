@@ -94,7 +94,9 @@ mavenPublishing {
     }
 
     publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
-    signAllPublications()
+    if (providers.environmentVariable("ORG_GRADLE_PROJECT_signingInMemoryKey").isPresent) {
+        signAllPublications()
+    }
 }
 
 publishing {
