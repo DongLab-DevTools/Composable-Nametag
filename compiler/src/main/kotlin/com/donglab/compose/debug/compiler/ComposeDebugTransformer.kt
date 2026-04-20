@@ -10,6 +10,7 @@ import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.expressions.IrBlockBody
 import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
+import org.jetbrains.kotlin.ir.util.fileOrNull
 import org.jetbrains.kotlin.ir.util.hasAnnotation
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
@@ -17,6 +18,7 @@ import org.jetbrains.kotlin.name.Name
 
 class ComposeDebugTransformer(
     private val pluginContext: IrPluginContext,
+    private val skipConfig: SkipConfig = SkipConfig(emptyList(), emptyList(), emptyList()),
 ) : IrElementTransformerVoidWithContext() {
 
     private val composableAnnotationFqName = FqName("androidx.compose.runtime.Composable")
@@ -61,6 +63,14 @@ class ComposeDebugTransformer(
         if (name.length <= 1) return true
         if (name.first().isLowerCase()) return true
         if (name.startsWith("__")) return true
+
+        if (skipConfig.nameRegexes.any { it.matches(name) }) return true
+        if (skipConfig.annotations.any { declaration.hasAnnotation(FqName(it)) }) return true
+        if (skipConfig.packages.isNotEmpty()) {
+            val pkg = declaration.fileOrNull?.packageFqName?.asString().orEmpty()
+            if (skipConfig.packages.any { pkg == it || pkg.startsWith("$it.") }) return true
+        }
+
         return false
     }
 }
