@@ -18,4 +18,6 @@ dependencyResolutionManagement {
 rootProject.name = "compose-debug-overlay"
 include(":compiler")
 include(":runtime")
-include(":app")
+if (System.getenv("CI") == null) {
+    include(":app")
+}

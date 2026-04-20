@@ -8,8 +8,8 @@ plugins {
 val rootProps = file("../gradle.properties").readLines()
     .filter { it.contains("=") && !it.trimStart().startsWith("#") }
     .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim() }
-val libGroup = rootProps["GROUP"] ?: "io.github.dongx0915.composable.nametag"
-val libVersion = rootProps["VERSION"] ?: "0.0.1"
+val libGroup = findProperty("GROUP") as? String ?: rootProps["GROUP"] ?: "io.github.dongx0915.composable.nametag"
+val libVersion = findProperty("VERSION") as? String ?: rootProps["VERSION"] ?: "0.0.1"
 
 group = libGroup
 version = libVersion
@@ -31,6 +31,7 @@ val generateVersionFile = tasks.register("generateVersionFile") {
             package com.donglab.compose.debug.gradle
 
             internal object BuildConfig {
+                const val GROUP = "$libGroup"
                 const val VERSION = "$version"
             }
             """.trimIndent()
@@ -49,7 +50,7 @@ dependencies {
 gradlePlugin {
     plugins {
         create("composeDebugOverlay") {
-            id = "io.github.dongx0915.composable.nametag"
+            id = libGroup
             implementationClass = "com.donglab.compose.debug.gradle.ComposeDebugOverlayPlugin"
             displayName = "Composable-Nametag"
             description = "Kotlin Compiler Plugin that displays @Composable function names on screen for debugging"
@@ -93,5 +94,20 @@ mavenPublishing {
     }
 
     publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
-    signAllPublications()
+    if (providers.environmentVariable("ORG_GRADLE_PROJECT_signingInMemoryKey").isPresent) {
+        signAllPublications()
+    }
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY") ?: return@maven}")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: ""
+                password = System.getenv("GITHUB_TOKEN") ?: ""
+            }
+        }
+    }
 }
