@@ -12,6 +12,6 @@ class ComposeDebugRegistrar : CompilerPluginRegistrar() {
     override fun ExtensionStorage.registerExtensions(
         configuration: CompilerConfiguration,
     ) {
-        IrGenerationExtension.registerExtension(ComposeDebugIrExtension())
+        IrGenerationExtension.registerExtension(ComposeDebugIrExtension(configuration))
     }
 }
