@@ -36,6 +36,7 @@ See each Composable's name directly on screen, making layout debugging and code 
 - **Debug only** — The compiler plugin and runtime are applied only to `debug` builds. Release builds contain zero library code — no IR injection, no runtime dependency.
 - **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all.
 - **Noise filtering** — Only PascalCase Composables get labels; lambdas, `remember`, property accessors, etc. are ignored.
+- **Customizable skip rules** — Exclude composables from labeling via package prefix, name regex, or annotation.
 - **Build safe** — Unsupported Kotlin versions only disable the compiler plugin — the build always succeeds.
 
 <br>
@@ -194,6 +195,62 @@ That's it. All `@Composable` function names will appear as labels on screen.
 | Lambda / anonymous | Skipped |
 | Property accessor | Skipped |
 | `__` prefix | Skipped |
+
+<br>
+<br>
+
+## Custom Skip Rules
+
+In addition to the built-in filters, you can exclude additional composables from labeling via the `composableNametag { }` DSL.
+
+### Options
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `skipPackages` | `List<String>` | Package FQN prefixes. Functions whose file package matches (exact or sub-package) are skipped. |
+| `skipNamePatterns` | `List<String>` | Java regex patterns. Functions whose simple name fully matches any pattern are skipped. |
+| `skipAnnotations` | `List<String>` | Fully-qualified annotation class names. Functions annotated with any of these are skipped. |
+
+All rules are **OR-combined** with the built-in rules — if any rule matches, the label is not injected.
+
+### Per-module
+
+```kotlin
+// feature/home/build.gradle.kts
+composableNametag {
+    skipPackages.addAll(
+        "com.myapp.internal",
+        "com.myapp.designsystem.foundation",
+    )
+    skipNamePatterns.addAll(
+        ".*Preview$",   // skip `XxxPreview`
+        "^Themed.*",    // skip `ThemedXxx`
+    )
+}
+```
+
+For `skipAnnotations`, pass the fully-qualified name of any annotation defined in your project (e.g. `"com.myapp.debug.MyInternalMarker"`). Composables marked with that annotation will be skipped.
+
+### Global (Convention Plugin)
+
+Configure once in your convention plugin to apply across all Compose modules:
+
+```kotlin
+// AndroidComposeConventionPlugin.kt
+import com.donglab.compose.debug.gradle.ComposableNametagExtension
+
+pluginManager.apply("{group-id}")
+pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
+
+extensions.configure<ComposableNametagExtension> {
+    skipNamePatterns.add(".*Preview$")
+}
+```
+
+Individual modules can still add their own rules on top — `ListProperty.add/addAll` accumulates.
+
+> [!note]
+> All filtering happens at compile time, so there's zero runtime cost regardless of how many rules you add.
 
 <br>
 <br>
