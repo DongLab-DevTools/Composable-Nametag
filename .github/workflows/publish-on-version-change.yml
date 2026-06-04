@@ -22,7 +22,7 @@ jobs:
       new-version: ${{ steps.version-check.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 2
 
@@ -52,8 +52,8 @@ jobs:
     if: needs.check-version-change.outputs.version-changed == 'true' && vars.MAVEN_CENTRAL_ENABLED != 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -75,8 +75,8 @@ jobs:
       matrix:
         kotlin: ["2.1.21", "2.2.0", "2.2.10", "2.2.20", "2.2.21", "2.3.0", "2.3.10", "2.3.20"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -101,8 +101,8 @@ jobs:
     if: needs.check-version-change.outputs.version-changed == 'true' && vars.MAVEN_CENTRAL_ENABLED != 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -122,7 +122,7 @@ jobs:
     if: needs.check-version-change.outputs.version-changed == 'true' && vars.MAVEN_CENTRAL_ENABLED != 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
