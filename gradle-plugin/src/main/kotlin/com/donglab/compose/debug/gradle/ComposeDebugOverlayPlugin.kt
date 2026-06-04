@@ -39,6 +39,11 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
     override fun apply(target: Project) {
         super.apply(target)
 
+        target.extensions.create(
+            ComposableNametagExtension.NAME,
+            ComposableNametagExtension::class.java,
+        )
+
         target.dependencies.add(
             "debugImplementation",
             "$GROUP_ID:$RUNTIME_ARTIFACT_ID:$VERSION",
@@ -89,7 +94,22 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
     override fun applyToCompilation(
         kotlinCompilation: KotlinCompilation<*>,
     ): Provider<List<SubpluginOption>> {
-        return kotlinCompilation.target.project.provider { emptyList() }
+        val project = kotlinCompilation.target.project
+        val extension = project.extensions.findByType(ComposableNametagExtension::class.java)
+        return project.provider {
+            if (extension == null) return@provider emptyList()
+            buildList {
+                extension.skipPackages.orNull.orEmpty().forEach {
+                    add(SubpluginOption(OPTION_SKIP_PACKAGE, it))
+                }
+                extension.skipNamePatterns.orNull.orEmpty().forEach {
+                    add(SubpluginOption(OPTION_SKIP_NAME_PATTERN, it))
+                }
+                extension.skipAnnotations.orNull.orEmpty().forEach {
+                    add(SubpluginOption(OPTION_SKIP_ANNOTATION, it))
+                }
+            }
+        }
     }
 
     private fun Project.resolveKotlinVersion(): String {
@@ -133,5 +153,9 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
             "2.2.0", "2.2.10", "2.2.20", "2.2.21",
             "2.3.0", "2.3.10", "2.3.20",
         )
+
+        private const val OPTION_SKIP_PACKAGE = "skipPackage"
+        private const val OPTION_SKIP_NAME_PATTERN = "skipNamePattern"
+        private const val OPTION_SKIP_ANNOTATION = "skipAnnotation"
     }
 }
