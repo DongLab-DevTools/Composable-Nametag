@@ -10,8 +10,7 @@
 
 ## Overview
 
-<img width="2048" height="1152" alt="image" src="https://github.com/user-attachments/assets/7043eb0a-0571-4709-b2b8-787bdf1d40b6" />
-
+<img width="2048" height="1152" alt="composable-nametag-example" src="https://github.com/user-attachments/assets/1896fa7f-535e-4d0b-aac9-7f55ff11a918" />
 
 <br>
 <br>
