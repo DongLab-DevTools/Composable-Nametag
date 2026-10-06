@@ -15,6 +15,9 @@ internal class HostView(val clip: LabelRect, val originX: Float, val originY: Fl
 /** Group key of the [__debugComposableName] group, learned from the first tag found. */
 private var markerKey: Any? = null
 
+/** Unreadable compositions are skipped and retried; logged only once to avoid noise. */
+private var loggedSkippedComposition = false
+
 /**
  * Labeled composables of one window, read from the slot table the same way Layout Inspector does.
  *
@@ -28,6 +31,9 @@ private var markerKey: Any? = null
  * The slot table walk is the expensive part, so it is cached per composition and redone only when
  * that composition changed (a name tag entered or left, or a cached node got detached).
  * Bounds are recomputed from the cached nodes on every cycle ([begin] → [step] …).
+ *
+ * A composition that cannot be read right now (for example while another writer holds its slot
+ * table) is skipped for this cycle and retried on the next one; it never fails the whole scan.
  *
  * Main thread only, outside of composition.
  */
@@ -129,18 +135,32 @@ internal class NametagTree {
             val scan = scans[data]
             if (scan == null || data in dirty || scan.hasDetachedNode()) {
                 if (System.nanoTime() >= deadline) return false
-                rescan(data)
-                dirty -= data
+                if (rescan(data)) dirty -= data
             }
         }
         return true
     }
 
-    private fun rescan(data: CompositionData) {
+    /** Re-walks one composition. Returns `false` when it could not be read this time. */
+    private fun rescan(data: CompositionData): Boolean {
         scans.remove(data)?.let(::forget)
         val walk = Walk()
-        for (group in data.compositionGroups) walk.visit(group, owner = null)
-        scans[data] = CompositionScan(walk.named, walk.roots, walk.ownedNodes)
+        return try {
+            for (group in data.compositionGroups) walk.visit(group, owner = null)
+            scans[data] = CompositionScan(walk.named, walk.roots, walk.ownedNodes)
+            true
+        } catch (t: Throwable) {
+            // 다른 쪽이 slot table 을 쓰는 중이거나 읽을 수 없는 상태 — 이번 사이클만 건너뜀
+            walk.ownedNodes.forEach(nodeOwners::remove)
+            if (!loggedSkippedComposition) {
+                loggedSkippedComposition = true
+                try {
+                    android.util.Log.d(TAG, "Skipped a composition that could not be read; will retry", t)
+                } catch (_: Throwable) {
+                }
+            }
+            false
+        }
     }
 
     private fun forget(scan: CompositionScan) {
@@ -246,11 +266,17 @@ internal class NametagTree {
     ): LabelRect? {
         var union: LabelRect? = null
         for (node in this) {
-            if (!node.isAttached || !node.isPlaced) continue
-            val coordinates = node.coordinates
-            if (!coordinates.isAttached) continue
-            val root = roots.getOrPut(host) { coordinates.findRootCoordinates() }
-            val rect = root.localBoundingBoxOf(coordinates)
+            val rect = try {
+                if (!node.isAttached || !node.isPlaced) continue
+                val coordinates = node.coordinates
+                if (!coordinates.isAttached) continue
+                val root = roots.getOrPut(host) { coordinates.findRootCoordinates() }
+                if (!root.isAttached) continue
+                root.localBoundingBoxOf(coordinates)
+            } catch (_: Throwable) {
+                // 사이클 사이에 떨어져 나간 노드 · 다른 루트의 노드 — 이번에는 영역 없음
+                continue
+            }
             val clip = host.clip
             val left = maxOf(rect.left + host.originX, clip.left)
             val top = maxOf(rect.top + host.originY, clip.top)

@@ -12,7 +12,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.DisplayMetrics
-import android.util.Log
 import android.util.TypedValue
 import android.view.Choreographer
 import android.view.View
@@ -20,12 +19,15 @@ import android.view.ViewTreeObserver
 import androidx.compose.runtime.tooling.CompositionData
 import kotlin.math.absoluteValue
 
-private const val TAG = "ComposableNametag"
 private const val MIN_SCAN_INTERVAL_MS = 100L
 private const val MAX_SCAN_INTERVAL_MS = 800L
 private const val STEP_BUDGET_NANOS = 2_000_000L
 
-/** Tracks which compositions carry name tags, per window root view. Main thread only. */
+/**
+ * Tracks which compositions carry name tags, per window root view.
+ *
+ * Called from composition effects; always hops to the main thread and never throws into the app.
+ */
 internal object NametagRegistry {
 
     private class Composition(val view: View) {
@@ -38,28 +40,33 @@ internal object NametagRegistry {
 
     private val roots = HashMap<View, Root>()
 
+    init {
+        NametagSafety.onBroken = ::clear
+    }
+
     /** A name tag entered [data], hosted by [view] (the ComposeView) inside the window of [rootView]. */
-    fun register(rootView: View, data: CompositionData, view: View) {
-        val root = roots.getOrPut(rootView) {
-            Root(NametagOverlay(rootView)).also { it.overlay.attach() }
+    fun register(rootView: View, data: CompositionData, view: View) = runGuardedOnMain("register") {
+        // attach 가 실패하면 map 에 남기지 않는다
+        val root = roots[rootView] ?: Root(NametagOverlay(rootView)).also {
+            it.overlay.attach()
+            roots[rootView] = it
         }
         root.compositions.getOrPut(data) { Composition(view) }.tagCount++
         root.overlay.onCompositionChanged(data)
     }
 
-    fun unregister(rootView: View, data: CompositionData) {
-        val root = roots[rootView] ?: return
-        val composition = root.compositions[data] ?: return
+    fun unregister(rootView: View, data: CompositionData) = runGuardedOnMain("unregister") {
+        val root = roots[rootView] ?: return@runGuardedOnMain
+        val composition = root.compositions[data] ?: return@runGuardedOnMain
         composition.tagCount--
         if (composition.tagCount > 0) {
             root.overlay.onCompositionChanged(data)
-            return
+            return@runGuardedOnMain
         }
 
         root.compositions.remove(data)
         if (root.compositions.isEmpty()) {
-            root.overlay.detach()
-            roots.remove(rootView)
+            forget(rootView)
         } else {
             root.overlay.onCompositionRemoved(data)
         }
@@ -67,6 +74,18 @@ internal object NametagRegistry {
 
     fun viewsOf(rootView: View): Map<CompositionData, View> =
         roots[rootView]?.compositions?.mapValues { it.value.view }.orEmpty()
+
+    /** Drops a window — its last composition left, or its root view left the screen. */
+    fun forget(rootView: View) {
+        roots.remove(rootView)?.overlay?.detach()
+    }
+
+    /** Turns every overlay off (repeated failures). */
+    fun clear() {
+        val overlays = roots.values.map { it.overlay }
+        roots.clear()
+        overlays.forEach { it.detach() }
+    }
 }
 
 /**
@@ -85,6 +104,9 @@ internal object NametagRegistry {
  *
  * Compositions whose host view is hidden or off screen (a kept-alive tab moved out of the window,
  * a hidden Fragment) are skipped, and bounds are clipped to the visible part of the host view.
+ *
+ * Every callback the system invokes (pre-draw, frame, handler, draw, view detach) runs through
+ * [NametagSafety] so that nothing thrown here reaches the host app.
  */
 internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObserver.OnPreDrawListener {
 
@@ -92,12 +114,24 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
     private val choreographer = Choreographer.getInstance()
     private val scanTask = Runnable {
         scanPending = false
-        scan()
+        NametagSafety.guard("scan") { scan() }
     }
 
     // 다음 프레임 콜백에서 post 하면 그 프레임의 traversal(측정·배치·그리기) 이 끝난 직후에 실행된다
-    private val afterFrame = Choreographer.FrameCallback { handler.post(scanTask) }
-    private val waitForFrame = Runnable { choreographer.postFrameCallback(afterFrame) }
+    private val afterFrame = Choreographer.FrameCallback {
+        NametagSafety.guard("frame") { handler.post(scanTask) }
+    }
+    private val waitForFrame = Runnable {
+        NametagSafety.guard("frame") { choreographer.postFrameCallback(afterFrame) }
+    }
+
+    // 창이 사라졌는데 등록 해제가 오지 않은 경우에도 View 를 붙잡고 있지 않도록
+    private val rootAttachListener = object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) = Unit
+        override fun onViewDetachedFromWindow(v: View) {
+            NametagSafety.guard("detach") { NametagRegistry.forget(root) }
+        }
+    }
     private var scanPending = false
     private var lastScanAt = 0L
     private var scanInterval = MIN_SCAN_INTERVAL_MS
@@ -111,20 +145,31 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
     private val viewOrigin = IntArray(2)
 
     fun attach() {
-        root.overlay.add(this)
-        root.viewTreeObserver.addOnPreDrawListener(this)
-        requestScan()
+        try {
+            root.overlay.add(this)
+            root.viewTreeObserver.addOnPreDrawListener(this)
+            root.addOnAttachStateChangeListener(rootAttachListener)
+            requestScan()
+        } catch (t: Throwable) {
+            detach()
+            throw t
+        }
     }
 
+    /** Removes everything this overlay hooked into. Each step is independent and never throws. */
     fun detach() {
-        cancelScan()
-        root.viewTreeObserver.takeIf { it.isAlive }?.removeOnPreDrawListener(this)
-        root.overlay.remove(this)
+        quietly { cancelScan() }
+        quietly { root.viewTreeObserver.takeIf { it.isAlive }?.removeOnPreDrawListener(this) }
+        quietly { root.removeOnAttachStateChangeListener(rootAttachListener) }
+        quietly { root.overlay.remove(this) }
+        cycleRunning = false
+        cycleGroups = null
+        labels = emptyList()
     }
 
     override fun onPreDraw(): Boolean {
-        requestScan()
-        return true
+        NametagSafety.guard("preDraw") { requestScan() }
+        return true // 그리기를 막지 않는다
     }
 
     fun onCompositionChanged(data: CompositionData) {
@@ -174,8 +219,8 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
                 cycleGroups = tree.step(STEP_BUDGET_NANOS)
             } catch (t: Throwable) {
                 // 디버그 도구가 앱을 죽이지 않도록 — 이번 사이클만 건너뜀
-                Log.w(TAG, "Nametag scan failed", t)
                 cycleRunning = false
+                NametagSafety.failed("scan", t)
                 return@traceSection
             }
             // 남은 단계(또는 선택·배치) 는 다음 프레임 뒤에 이어서
@@ -193,9 +238,10 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
                 placeLabels(targets, root.width.toFloat(), root.height.toFloat(), painter::measure)
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "Nametag scan failed", t)
-            emptyList()
+            NametagSafety.failed("scan", t)
+            return@traceSection
         }
+        NametagSafety.succeeded()
 
         val changed = placed != labels
         scanInterval = if (changed) MIN_SCAN_INTERVAL_MS else (scanInterval * 2).coerceAtMost(MAX_SCAN_INTERVAL_MS)
@@ -237,8 +283,10 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
         return HostView(clip, viewOrigin[0].toFloat(), viewOrigin[1].toFloat())
     }
 
-    override fun draw(canvas: Canvas) = traceSection("Nametag:draw") {
-        labels.forEach { painter.draw(canvas, it) }
+    override fun draw(canvas: Canvas) = NametagSafety.guard("draw") {
+        traceSection("Nametag:draw") {
+            labels.forEach { painter.draw(canvas, it) }
+        }
     }
 
     override fun setAlpha(alpha: Int) = Unit
@@ -295,5 +343,12 @@ private class LabelPainter(metrics: DisplayMetrics) {
         canvas.drawRoundRect(rectF, corner, corner, fillPaint)
         canvas.drawRoundRect(rectF, corner, corner, borderPaint)
         canvas.drawText(label.name, rect.left + paddingH, rect.top + paddingV - fontMetrics.ascent, textPaint)
+    }
+}
+
+private inline fun quietly(block: () -> Unit) {
+    try {
+        block()
+    } catch (_: Throwable) {
     }
 }
