@@ -1,87 +1,38 @@
 package com.donglab.compose.debug
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
-import kotlin.math.absoluteValue
-
-private val overlayColors = listOf(
-    Color(0xDDE91E63),
-    Color(0xDD2196F3),
-    Color(0xDD4CAF50),
-    Color(0xDDFF9800),
-    Color(0xDD9C27B0),
-    Color(0xDD00BCD4),
-    Color(0xDDFF5722),
-    Color(0xDD607D8B),
-)
-
-private const val LABEL_HEIGHT_DP = 14
-private const val STAGGER_SLOTS = 6
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.currentComposer
+import androidx.compose.ui.platform.LocalView
 
 /**
- * Debug overlay that shows the composable function name as a small label.
+ * Debug marker that tags the calling composable with its function name.
  *
- * Injected automatically by the Compose Debug Compiler Plugin.
+ * Injected automatically by the Compose Debug Compiler Plugin at the top of every labeled
+ * `@Composable`. It emits no layout node — it only leaves a [NameTag] in the slot table.
+ * [NametagTree] later finds the tagged group, measures what that composable actually drew
+ * and paints the label on top of the window.
+ *
  * Do NOT call manually.
  */
 @Composable
 fun __debugComposableName(name: String) {
     if (!ComposeDebugConfig.enabled) return
 
-    val color = remember(name) {
-        overlayColors[name.hashCode().absoluteValue.mod(overlayColors.size)]
-    }
+    // 이 그룹의 부모 그룹 = name 에 해당하는 Composable 그룹 (NametagTree 가 찾는 표식)
+    // remember 대신 슬롯에 직접 기록 — remember 는 source information 이 켜지면 하위 그룹으로 분리됨
+    val composer = currentComposer
+    val cached = composer.rememberedValue()
+    if (cached !is NameTag || cached.name != name) composer.updateRememberedValue(NameTag(name))
 
-    val density = LocalDensity.current
-    val yOffsetPx = remember(name) {
-        val slot = name.hashCode().absoluteValue.mod(STAGGER_SLOTS)
-        with(density) { (slot * LABEL_HEIGHT_DP).dp.roundToPx() }
-    }
-
-    val shape = RoundedCornerShape(2.dp)
-
-    Box(
-        modifier = Modifier
-            .zIndex(Float.MAX_VALUE)
-            .layout { measurable, constraints ->
-                val placeable = measurable.measure(constraints)
-                layout(0, 0) {
-                    placeable.placeWithLayer(0, yOffsetPx) { clip = false }
-                }
-            },
-    ) {
-        Text(
-            text = name,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .background(color, shape)
-                .border(0.5.dp, Color.White.copy(alpha = 0.5f), shape)
-                .padding(horizontal = 4.dp, vertical = 1.dp),
-            style = TextStyle(
-                color = Color.White,
-                fontSize = 7.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 9.sp,
-            ),
-            maxLines = 1,
-        )
+    val compositionData = composer.compositionData
+    val view = LocalView.current
+    DisposableEffect(compositionData, view) {
+        val root = view.rootView
+        NametagRegistry.register(root, compositionData, view)
+        onDispose { NametagRegistry.unregister(root, compositionData) }
     }
 }
+
+/** Slot table marker left by [__debugComposableName]. */
+internal class NameTag(val name: String)
