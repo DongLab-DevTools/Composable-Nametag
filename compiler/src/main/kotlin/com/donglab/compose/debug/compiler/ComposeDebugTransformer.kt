@@ -23,6 +23,12 @@ class ComposeDebugTransformer(
 
     private val composableAnnotationFqName = FqName("androidx.compose.runtime.Composable")
 
+    // 그룹을 만들지 않거나 직접 관리하는 함수 — 마커(그룹을 만드는 호출) 를 넣으면 slot table 구조가 깨진다
+    private val groupSensitiveAnnotations = listOf(
+        FqName("androidx.compose.runtime.ReadOnlyComposable"),
+        FqName("androidx.compose.runtime.ExplicitGroupsComposable"),
+    )
+
     private val debugOverlayFnSymbol: IrSimpleFunctionSymbol? by lazy {
         val callableId = CallableId(
             packageName = FqName("com.donglab.compose.debug"),
@@ -63,6 +69,7 @@ class ComposeDebugTransformer(
         if (name.length <= 1) return true
         if (name.first().isLowerCase()) return true
         if (name.startsWith("__")) return true
+        if (groupSensitiveAnnotations.any { declaration.hasAnnotation(it) }) return true
 
         if (skipConfig.nameRegexes.any { it.matches(name) }) return true
         if (skipConfig.annotations.any { declaration.hasAnnotation(FqName(it)) }) return true

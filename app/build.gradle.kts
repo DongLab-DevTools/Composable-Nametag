@@ -37,6 +37,15 @@ android {
     }
 }
 
+// 샘플 앱은 배포본 대신 로컬 :runtime / :compiler 모듈을 바로 사용 (mavenLocal 배포 불필요)
+configurations.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        val group = property("GROUP") as String
+        substitute(module("$group:composable-nametag-runtime")).using(project(":runtime"))
+        substitute(module("$group:composable-nametag-compiler")).using(project(":compiler"))
+    }
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
