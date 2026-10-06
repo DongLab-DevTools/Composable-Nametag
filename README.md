@@ -15,7 +15,7 @@
 <br>
 <br>
 
-Composable-Nametag is a debug tool that overlays the name of every `@Composable` function as a label on your screen.
+Composable-Nametag is a debug tool that overlays the names of the `@Composable` functions visible on your screen as labels.
 
 **Without modifying any existing code**, the Kotlin Compiler Plugin (KCP) automatically injects labels at compile time.  
 See each Composable's name directly on screen, making layout debugging and code review faster.
@@ -32,11 +32,15 @@ See each Composable's name directly on screen, making layout debugging and code 
 ## Features
 
 - **Auto injection** — The Compiler Plugin injects labels at compile time without touching your existing code.
+- **Only what you see** — Labels follow the area each Composable actually drew. Composables that draw nothing (effects, themes) and views that are off screen or hidden are left out.
+- **No overlapping labels** — A wrapper chain covering the same area shows only its outermost name, repeated list items show one level inside, and labels are placed so they never overlap.
+- **Layout untouched** — Labels are drawn on a window overlay, not inside your layout, so spacing and placement never change.
 - **Debug only** — The compiler plugin and runtime are applied only to `debug` builds. Release builds contain zero library code — no IR injection, no runtime dependency.
-- **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all.
-- **Noise filtering** — Only PascalCase Composables get labels; lambdas, `remember`, property accessors, etc. are ignored.
+- **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all. In debug builds with the overlay turned off, the injected call reads one state and returns — no overlay or scan is created.
+- **Compile-time filtering** — Only PascalCase Composables are labeled; lambdas, `remember`, property accessors, etc. are ignored.
 - **Customizable skip rules** — Exclude composables from labeling via package prefix, name regex, or annotation.
 - **Build safe** — Unsupported Kotlin versions only disable the compiler plugin — the build always succeeds.
+- **App safe** — Errors while labeling never propagate to your app. Repeated errors turn the overlay off by itself. Non-UI compositions such as Glance or vector graphics are left alone.
 
 <br>
 <br>
@@ -171,7 +175,7 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
 ComposeDebugConfig.enabled = true
 ```
 
-That's it. All `@Composable` function names will appear as labels on screen.
+That's it. The `@Composable`s visible on screen get name labels.
 
 <br>
 <br>
@@ -183,9 +187,28 @@ That's it. All `@Composable` function names will appear as labels on screen.
 </div>
 
 <br>
+
+### How labels are displayed
+
+The injected marker creates no layout node — it only leaves a name tag in the slot table.
+At runtime the slot table is read the same way Layout Inspector does to find the area each Composable actually drew, and the labels picked by the rules below are drawn on top of the window (overlay).
+
+| Rule | Example |
+|------|---------|
+| Nothing drawn → skipped | Effects, themes, dialogs that are not shown |
+| Off screen or hidden view → skipped | Items scrolled away, kept-alive tabs |
+| Wrapper chain with the same area → outermost name only | `MovieItem › Poster › Thumbnail` shows `MovieItem` |
+| Inside a repeated list item → one level deep | `ShortcutItem › ShortcutIcon` shown, `IconImage` skipped |
+
+- **Placement** — Labels are placed biggest area first, in the first free corner of their area. A label with no free corner is dropped.
+- **Performance** — Updates run in ~2ms steps in the idle time between frames, so they do not delay frames while scrolling. On a still screen the update interval backs off up to 800ms.
+
+<br>
 <br>
 
-## Filtering Rules
+## Filtering Rules (compile time)
+
+These rules decide which functions get the label marker. For which labels appear on screen, see [How labels are displayed](#how-labels-are-displayed).
 
 | Condition | Behavior |
 |-----------|----------|
@@ -194,6 +217,7 @@ That's it. All `@Composable` function names will appear as labels on screen.
 | Lambda / anonymous | Skipped |
 | Property accessor | Skipped |
 | `__` prefix | Skipped |
+| `@ReadOnlyComposable` · `@ExplicitGroupsComposable` | Skipped (keeps group structure intact) |
 
 <br>
 <br>
