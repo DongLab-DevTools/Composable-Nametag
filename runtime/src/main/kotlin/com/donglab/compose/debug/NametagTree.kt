@@ -27,7 +27,7 @@ private var markerKey: Any? = null
  *
  * The slot table walk is the expensive part, so it is cached per composition and redone only when
  * that composition changed (a name tag entered or left, or a cached node got detached).
- * Bounds are recomputed from the cached nodes on every [refresh].
+ * Bounds are recomputed from the cached nodes on every cycle ([begin] → [step] …).
  *
  * Main thread only, outside of composition.
  */
@@ -49,10 +49,6 @@ internal class NametagTree {
     private val dirty = HashSet<CompositionData>()
     private val nodeOwners = HashMap<LayoutInfo, NamedGroup>()
 
-    /** Number of compositions whose slot table was walked by the last [refresh]. */
-    var lastRescanCount = 0
-        private set
-
     fun invalidate(data: CompositionData) {
         dirty += data
     }
@@ -60,35 +56,84 @@ internal class NametagTree {
     fun remove(data: CompositionData) {
         scans.remove(data)?.let(::forget)
         dirty -= data
+        hosts.remove(data) // 진행 중인 사이클이 사라진 composition 을 다시 읽지 않도록
+    }
+
+    // ── 한 번의 갱신을 여러 프레임에 나눠 실행하는 사이클 ──────────────
+
+    private enum class Phase { Rescan, Bounds, Link }
+
+    private var phase = Phase.Link
+    private val hosts = LinkedHashMap<CompositionData, HostView?>()
+    private var boundsQueue: List<Pair<CompositionData, CompositionScan>> = emptyList()
+    private var boundsIndex = 0
+    private val rootCoordinates = HashMap<HostView, LayoutCoordinates>()
+
+    /**
+     * Starts a refresh cycle; drive it with [step] until it returns the groups.
+     *
+     * @param hosts host view of each composition, `null` when the view is hidden or off screen
+     */
+    fun begin(hosts: Map<CompositionData, HostView?>) {
+        scans.keys.filter { it !in hosts }.forEach(::remove)
+        dirty.retainAll(hosts.keys)
+        this.hosts.clear()
+        this.hosts.putAll(hosts)
+        rootCoordinates.clear()
+        phase = Phase.Rescan
     }
 
     /**
-     * @param hosts host view of each composition, `null` when the view is hidden or off screen
+     * Runs the current cycle until [budgetNanos] is spent.
+     *
+     * Work is split per composition (slot table walk, bounds), so one step stays short and the
+     * cycle can span several frames. Returns the labeled groups when the cycle is complete,
+     * `null` when more steps are needed.
      */
-    fun refresh(hosts: Map<CompositionData, HostView?>): List<NamedGroup> {
-        scans.keys.filter { it !in hosts }.forEach(::remove)
+    fun step(budgetNanos: Long): List<NamedGroup>? {
+        val deadline = System.nanoTime() + budgetNanos
 
-        lastRescanCount = 0
+        if (phase == Phase.Rescan) {
+            val done = traceSection("Nametag:rescan") { rescanUntil(deadline) }
+            if (!done) return null
+            boundsQueue = scans.entries.map { it.key to it.value }
+            boundsIndex = 0
+            phase = Phase.Bounds
+        }
+
+        if (phase == Phase.Bounds) {
+            traceSection("Nametag:bounds") {
+                while (boundsIndex < boundsQueue.size && System.nanoTime() < deadline) {
+                    val (data, scan) = boundsQueue[boundsIndex++]
+                    val host = hosts[data]
+                    for (named in scan.named) {
+                        named.group.bounds = host?.let { named.nodes.visibleBounds(it, rootCoordinates) }
+                    }
+                }
+            }
+            if (boundsIndex < boundsQueue.size) return null
+            phase = Phase.Link
+            if (System.nanoTime() >= deadline) return null
+        }
+
+        return traceSection("Nametag:link") {
+            linkSubcompositionRoots(hosts, rootCoordinates)
+            // 사이클 도중 다시 읽힌 composition 은 영역이 아직 없으므로 다음 사이클에 나온다
+            scans.values.flatMap { scan -> scan.named.map { it.group } }
+        }
+    }
+
+    /** Re-walks new, changed and stale compositions until [deadline]. Returns `true` when none is left. */
+    private fun rescanUntil(deadline: Long): Boolean {
         for (data in hosts.keys) {
             val scan = scans[data]
             if (scan == null || data in dirty || scan.hasDetachedNode()) {
+                if (System.nanoTime() >= deadline) return false
                 rescan(data)
-                lastRescanCount++
+                dirty -= data
             }
         }
-        dirty.clear()
-
-        val groups = ArrayList<NamedGroup>()
-        val roots = HashMap<HostView, LayoutCoordinates>()
-        for ((data, scan) in scans) {
-            val host = hosts[data]
-            for (named in scan.named) {
-                named.group.bounds = host?.let { named.nodes.visibleBounds(it, roots) }
-                groups += named.group
-            }
-        }
-        linkSubcompositionRoots(hosts, roots)
-        return groups
+        return true
     }
 
     private fun rescan(data: CompositionData) {

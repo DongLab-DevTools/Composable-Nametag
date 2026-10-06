@@ -95,6 +95,7 @@ private fun depthInListItem(group: NamedGroup, shown: Set<NamedGroup>): Int {
  *
  * Each label tries the four inner corners of its bounds (top-left → top-right → bottom-left →
  * bottom-right) and is dropped when all of them collide with an already placed label.
+ * Runs on every scan, so the loop works on primitives instead of allocating candidate rects.
  */
 internal fun placeLabels(
     targets: List<LabelTarget>,
@@ -102,37 +103,45 @@ internal fun placeLabels(
     viewHeight: Float,
     measure: (String) -> LabelSize,
 ): List<PlacedLabel> {
-    val placed = ArrayList<PlacedLabel>()
-    for (target in targets.sortedByDescending { it.bounds.area }) {
+    val sorted = targets.sortedByDescending { it.bounds.area }
+    val placedRects = FloatArray(sorted.size * 4)
+    var placedCount = 0
+    val placed = ArrayList<PlacedLabel>(sorted.size)
+
+    for (target in sorted) {
         val size = measure(target.name)
-        val spot = cornerCandidates(target.bounds, size)
-            .map { it.clampInto(viewWidth, viewHeight) }
-            .firstOrNull { candidate -> placed.none { it.rect.intersects(candidate) } }
-            ?: continue
-        placed += PlacedLabel(target.name, spot)
+        val bounds = target.bounds
+        for (corner in 0 until 4) {
+            val x = clampStart(if (corner % 2 == 0) bounds.left else bounds.right - size.width, size.width, viewWidth)
+            val y = clampStart(if (corner < 2) bounds.top else bounds.bottom - size.height, size.height, viewHeight)
+            if (collides(placedRects, placedCount, x, y, x + size.width, y + size.height)) continue
+
+            val index = placedCount * 4
+            placedRects[index] = x
+            placedRects[index + 1] = y
+            placedRects[index + 2] = x + size.width
+            placedRects[index + 3] = y + size.height
+            placedCount++
+            placed += PlacedLabel(target.name, LabelRect(x, y, x + size.width, y + size.height))
+            break
+        }
     }
     return placed
 }
 
-private fun cornerCandidates(bounds: LabelRect, size: LabelSize): List<LabelRect> {
-    val left = bounds.left
-    val right = bounds.right - size.width
-    val top = bounds.top
-    val bottom = bounds.bottom - size.height
-    return listOf(left to top, right to top, left to bottom, right to bottom)
-        .map { (x, y) -> LabelRect(x, y, x + size.width, y + size.height) }
+/** Pulls a label back into the view: overflow at the end first, then at the start. */
+private fun clampStart(start: Float, length: Float, viewLength: Float): Float = when {
+    start + length > viewLength -> viewLength - length
+    start < 0f -> 0f
+    else -> start
 }
 
-private fun LabelRect.clampInto(viewWidth: Float, viewHeight: Float): LabelRect {
-    val dx = when {
-        right > viewWidth -> viewWidth - right
-        left < 0f -> -left
-        else -> 0f
+private fun collides(rects: FloatArray, count: Int, left: Float, top: Float, right: Float, bottom: Float): Boolean {
+    for (i in 0 until count) {
+        val index = i * 4
+        if (left < rects[index + 2] && rects[index] < right && top < rects[index + 3] && rects[index + 1] < bottom) {
+            return true
+        }
     }
-    val dy = when {
-        bottom > viewHeight -> viewHeight - bottom
-        top < 0f -> -top
-        else -> 0f
-    }
-    return offset(dx, dy)
+    return false
 }

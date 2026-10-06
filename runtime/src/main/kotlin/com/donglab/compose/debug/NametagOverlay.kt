@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.util.Log
 import android.util.TypedValue
+import android.view.Choreographer
 import android.view.View
 import android.view.ViewTreeObserver
 import androidx.compose.runtime.tooling.CompositionData
@@ -22,6 +23,7 @@ import kotlin.math.absoluteValue
 private const val TAG = "ComposableNametag"
 private const val MIN_SCAN_INTERVAL_MS = 100L
 private const val MAX_SCAN_INTERVAL_MS = 800L
+private const val STEP_BUDGET_NANOS = 2_000_000L
 
 /** Tracks which compositions carry name tags, per window root view. Main thread only. */
 internal object NametagRegistry {
@@ -76,20 +78,32 @@ internal object NametagRegistry {
  * the interval doubles up to [MAX_SCAN_INTERVAL_MS]; a change or a name tag entering/leaving
  * resets it. The overlay is redrawn only when the result changes.
  *
+ * A scan is a cycle split into short steps (about [STEP_BUDGET_NANOS] each: slot table walks and
+ * bounds per composition, then selection and placement). Each step starts right after a frame
+ * finishes (frame callback → post), so it uses the idle time before the next vsync instead of
+ * delaying a pending frame; a cycle may span a few frames.
+ *
  * Compositions whose host view is hidden or off screen (a kept-alive tab moved out of the window,
  * a hidden Fragment) are skipped, and bounds are clipped to the visible part of the host view.
  */
 internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObserver.OnPreDrawListener {
 
     private val handler = Handler(Looper.getMainLooper())
+    private val choreographer = Choreographer.getInstance()
     private val scanTask = Runnable {
         scanPending = false
         scan()
     }
+
+    // 다음 프레임 콜백에서 post 하면 그 프레임의 traversal(측정·배치·그리기) 이 끝난 직후에 실행된다
+    private val afterFrame = Choreographer.FrameCallback { handler.post(scanTask) }
+    private val waitForFrame = Runnable { choreographer.postFrameCallback(afterFrame) }
     private var scanPending = false
     private var lastScanAt = 0L
     private var scanInterval = MIN_SCAN_INTERVAL_MS
     private var labels: List<PlacedLabel> = emptyList()
+    private var cycleRunning = false
+    private var cycleGroups: List<NamedGroup>? = null
     private val painter = LabelPainter(root.resources.displayMetrics)
     private val tree = NametagTree()
     private val windowOffset = IntArray(2)
@@ -103,8 +117,7 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
     }
 
     fun detach() {
-        handler.removeCallbacks(scanTask)
-        scanPending = false
+        cancelScan()
         root.viewTreeObserver.takeIf { it.isAlive }?.removeOnPreDrawListener(this)
         root.overlay.remove(this)
     }
@@ -125,47 +138,89 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
     }
 
     private fun resetScanInterval() {
+        // 진행 중인 사이클은 그대로 이어가고, 바뀐 composition 은 다음 사이클에 반영
+        if (cycleRunning) {
+            scanInterval = MIN_SCAN_INTERVAL_MS
+            return
+        }
         if (scanInterval != MIN_SCAN_INTERVAL_MS) {
             scanInterval = MIN_SCAN_INTERVAL_MS
-            handler.removeCallbacks(scanTask)
-            scanPending = false
+            cancelScan()
         }
         requestScan()
     }
 
-    private fun requestScan() {
+    private fun requestScan(immediately: Boolean = false) {
+        if (cycleRunning && !immediately) return
         if (scanPending) return
         scanPending = true
-        val wait = lastScanAt + scanInterval - SystemClock.uptimeMillis()
-        handler.postDelayed(scanTask, wait.coerceAtLeast(0L))
+        val wait = if (immediately) 0L else lastScanAt + scanInterval - SystemClock.uptimeMillis()
+        handler.postDelayed(waitForFrame, wait.coerceAtLeast(0L))
     }
 
-    private fun scan() {
-        lastScanAt = SystemClock.uptimeMillis()
-        val placed = try {
-            root.getLocationInWindow(windowOffset)
-            val dx = -windowOffset[0].toFloat()
-            val dy = -windowOffset[1].toFloat()
-            val hostViews = HashMap<View, HostView?>()
-            val hosts = NametagRegistry.viewsOf(root).mapValues { (_, view) ->
-                hostViews.getOrPut(view) { view.toHostView() }
+    private fun cancelScan() {
+        handler.removeCallbacks(waitForFrame)
+        choreographer.removeFrameCallback(afterFrame)
+        handler.removeCallbacks(scanTask)
+        scanPending = false
+    }
+
+    /** Runs one step of the current scan cycle, starting a new cycle when none is running. */
+    private fun scan() = traceSection("Nametag:scan") {
+        val groups = cycleGroups
+        if (groups == null) {
+            try {
+                if (!cycleRunning) beginCycle()
+                cycleGroups = tree.step(STEP_BUDGET_NANOS)
+            } catch (t: Throwable) {
+                // 디버그 도구가 앱을 죽이지 않도록 — 이번 사이클만 건너뜀
+                Log.w(TAG, "Nametag scan failed", t)
+                cycleRunning = false
+                return@traceSection
             }
-            val groups = tree.refresh(hosts)
-            val targets = selectLabelTargets(groups).map { it.copy(bounds = it.bounds.offset(dx, dy)) }
-            placeLabels(targets, root.width.toFloat(), root.height.toFloat(), painter::measure)
+            // 남은 단계(또는 선택·배치) 는 다음 프레임 뒤에 이어서
+            requestScan(immediately = true)
+            return@traceSection
+        }
+        cycleGroups = null
+        cycleRunning = false
+
+        val placed = try {
+            val targets = traceSection("Nametag:select") {
+                selectLabelTargets(groups).map { it.copy(bounds = it.bounds.offset(cycleDx, cycleDy)) }
+            }
+            traceSection("Nametag:place") {
+                placeLabels(targets, root.width.toFloat(), root.height.toFloat(), painter::measure)
+            }
         } catch (t: Throwable) {
-            // 디버그 도구가 앱을 죽이지 않도록 — 이번 스캔만 건너뜀
             Log.w(TAG, "Nametag scan failed", t)
             emptyList()
         }
-        if (placed == labels) {
-            scanInterval = (scanInterval * 2).coerceAtMost(MAX_SCAN_INTERVAL_MS)
-            return
-        }
-        scanInterval = MIN_SCAN_INTERVAL_MS
+
+        val changed = placed != labels
+        scanInterval = if (changed) MIN_SCAN_INTERVAL_MS else (scanInterval * 2).coerceAtMost(MAX_SCAN_INTERVAL_MS)
+        if (!changed) return@traceSection
         labels = placed
         setBounds(0, 0, root.width, root.height)
         invalidateSelf()
+    }
+
+    private var cycleDx = 0f
+    private var cycleDy = 0f
+
+    private fun beginCycle() {
+        lastScanAt = SystemClock.uptimeMillis()
+        root.getLocationInWindow(windowOffset)
+        cycleDx = -windowOffset[0].toFloat()
+        cycleDy = -windowOffset[1].toFloat()
+        val hosts = traceSection("Nametag:hosts") {
+            val hostViews = HashMap<View, HostView?>()
+            NametagRegistry.viewsOf(root).mapValues { (_, view) ->
+                hostViews.getOrPut(view) { view.toHostView() }
+            }
+        }
+        tree.begin(hosts)
+        cycleRunning = true
     }
 
     /** Visible part and origin of this view in window coordinates, `null` when hidden or fully off screen. */
@@ -182,7 +237,7 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
         return HostView(clip, viewOrigin[0].toFloat(), viewOrigin[1].toFloat())
     }
 
-    override fun draw(canvas: Canvas) {
+    override fun draw(canvas: Canvas) = traceSection("Nametag:draw") {
         labels.forEach { painter.draw(canvas, it) }
     }
 
