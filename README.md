@@ -36,10 +36,11 @@ See each Composable's name directly on screen, making layout debugging and code 
 - **No overlapping labels** — A wrapper chain covering the same area shows only its outermost name, repeated list items show one level inside, and labels are placed so they never overlap.
 - **Layout untouched** — Labels are drawn on a window overlay, not inside your layout, so spacing and placement never change.
 - **Debug only** — The compiler plugin and runtime are applied only to `debug` builds. Release builds contain zero library code — no IR injection, no runtime dependency.
-- **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all.
+- **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all. In debug builds with the overlay turned off, the injected call reads one state and returns — no overlay or scan is created.
 - **Compile-time filtering** — Only PascalCase Composables are labeled; lambdas, `remember`, property accessors, etc. are ignored.
 - **Customizable skip rules** — Exclude composables from labeling via package prefix, name regex, or annotation.
 - **Build safe** — Unsupported Kotlin versions only disable the compiler plugin — the build always succeeds.
+- **App safe** — Errors while labeling never propagate to your app. Repeated errors turn the overlay off by itself. Non-UI compositions such as Glance or vector graphics are left alone.
 
 <br>
 <br>
@@ -216,6 +217,7 @@ These rules decide which functions get the label marker. For which labels appear
 | Lambda / anonymous | Skipped |
 | Property accessor | Skipped |
 | `__` prefix | Skipped |
+| `@ReadOnlyComposable` · `@ExplicitGroupsComposable` | Skipped (keeps group structure intact) |
 
 <br>
 <br>
