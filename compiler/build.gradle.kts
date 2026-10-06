@@ -18,7 +18,8 @@ kotlin {
     sourceSets.main {
         kotlin.srcDir(
             when {
-                targetKotlinVersion.startsWith("2.3") -> "src/main/kotlin-2.3"
+                targetKotlinVersion.startsWith("2.3") ||
+                    targetKotlinVersion.startsWith("2.4") -> "src/main/kotlin-2.3"
                 else -> "src/main/kotlin-2.1"
             }
         )
