@@ -10,6 +10,14 @@ on:
       - 'release/**'
     paths:
       - 'gradle.properties'
+  # 일부 모듈 배포가 실패했을 때 그 모듈만 다시 배포 (Actions → Run workflow → release 브랜치 선택)
+  workflow_dispatch:
+    inputs:
+      target:
+        description: '배포할 모듈'
+        type: choice
+        options: [all, runtime, compiler, gradle-plugin]
+        default: all
 
 permissions:
   contents: write
@@ -36,6 +44,13 @@ jobs:
           CURRENT_VERSION=$(grep "^VERSION=" gradle.properties | cut -d '=' -f 2)
           echo "Current version: $CURRENT_VERSION"
 
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Manual run: publishing $CURRENT_VERSION (${{ inputs.target }})"
+            exit 0
+          fi
+
           git checkout HEAD~1 -- gradle.properties 2>/dev/null || echo "No previous version found"
           PREVIOUS_VERSION=$(grep "^VERSION=" gradle.properties | cut -d '=' -f 2 2>/dev/null || echo "")
           echo "Previous version: $PREVIOUS_VERSION"
@@ -53,7 +68,7 @@ jobs:
 
   publish-runtime:
     needs: check-version-change
-    if: needs.check-version-change.outputs.version-changed == 'true'
+    if: needs.check-version-change.outputs.version-changed == 'true' && contains(fromJSON('["all", "runtime"]'), inputs.target || 'all')
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
@@ -63,7 +78,9 @@ jobs:
             17
             21
           distribution: 'temurin'
-      - uses: android-actions/setup-android@v3
+      # GitHub 호스티드 러너에는 SDK 가 이미 있음 — Android SDK 가 없는 자체 러너(RUNS_ON)에서만 설치
+      - uses: android-actions/setup-android@v4
+        if: vars.RUNS_ON != ''
       - run: chmod +x gradlew
       - name: Publish runtime
         run: ./gradlew :runtime:publishMavenPublicationToGitHubPackagesRepository ${{ env.GROUP_ARG }}
@@ -72,7 +89,7 @@ jobs:
 
   publish-compiler:
     needs: check-version-change
-    if: needs.check-version-change.outputs.version-changed == 'true'
+    if: needs.check-version-change.outputs.version-changed == 'true' && contains(fromJSON('["all", "compiler"]'), inputs.target || 'all')
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     strategy:
       matrix:
@@ -102,7 +119,7 @@ jobs:
 
   publish-gradle-plugin:
     needs: check-version-change
-    if: needs.check-version-change.outputs.version-changed == 'true'
+    if: needs.check-version-change.outputs.version-changed == 'true' && contains(fromJSON('["all", "gradle-plugin"]'), inputs.target || 'all')
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
