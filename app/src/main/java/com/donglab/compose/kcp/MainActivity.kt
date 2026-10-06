@@ -20,10 +20,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.donglab.compose.debug.ComposeDebugConfig
 
+private const val EXTRA_NAMETAG = "nametag"
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ComposeDebugConfig.enabled = true
+        // 꺼진 채로 시작해 켜는 경우도 확인할 수 있도록: adb shell am start ... --ez nametag false
+        ComposeDebugConfig.enabled = intent?.getBooleanExtra(EXTRA_NAMETAG, true) ?: true
         setContent {
             MaterialTheme {
                 SampleApp()

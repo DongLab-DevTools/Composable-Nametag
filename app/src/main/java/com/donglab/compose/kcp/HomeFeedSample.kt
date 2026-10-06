@@ -70,7 +70,7 @@ private val movies = listOf(
     Movie(Color(0xFF8D6E63), isPaid = true, hasSubtitle = false, isAdult = true),
 ).let { it + it + it }
 
-private enum class SectionType { Shortcuts, Movies, Spacing }
+private enum class SectionType { Shortcuts, Movies, Spacing, EdgeCases }
 
 private data class SectionSpec(val title: String, val type: SectionType)
 
@@ -78,6 +78,7 @@ private val sections = listOf(
     SectionSpec("Shortcuts", SectionType.Shortcuts),
     SectionSpec("Movies", SectionType.Movies),
     SectionSpec("spacedBy check", SectionType.Spacing),
+    SectionSpec("Edge cases", SectionType.EdgeCases),
 )
 
 @Composable
@@ -89,6 +90,7 @@ fun HomeFeedSample(modifier: Modifier = Modifier) {
                     SectionType.Shortcuts -> ShortcutRow(shortcuts)
                     SectionType.Movies -> MovieRow(movies)
                     SectionType.Spacing -> SpacingCheck()
+                    SectionType.EdgeCases -> EdgeCases()
                 }
             }
         }
