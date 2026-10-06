@@ -152,7 +152,7 @@ class ComposeDebugOverlayPlugin : KotlinCompilerPluginSupportPlugin {
             "2.1.21",
             "2.2.0", "2.2.10", "2.2.20", "2.2.21",
             "2.3.0", "2.3.10", "2.3.20", "2.3.21",
-            "2.4.0", "2.4.10",
+            "2.4.0", "2.4.10", "2.4.20",
         )
 
         private const val OPTION_SKIP_PACKAGE = "skipPackage"

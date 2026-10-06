@@ -160,7 +160,7 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
 ### 요구사항
 
 - Android API 24 (Android 7.0) 이상
-- Kotlin **2.1.21 ~ 2.3.20** ([지원 버전 목록](#kotlin-버전-호환성) 참조)
+- Kotlin **2.1.21 ~ 2.4.20** ([지원 버전 목록](#kotlin-버전-호환성) 참조)
 - Jetpack Compose (BOM 2025.05.01 또는 호환 버전)
 - JDK 17+
 
@@ -294,6 +294,10 @@ Gradle 플러그인이 프로젝트의 Kotlin 버전을 자동 감지하여 맞�
 | 2.3.0 | ✅ |
 | 2.3.10 | ✅ |
 | 2.3.20 | ✅ |
+| 2.3.21 | ✅ |
+| 2.4.0 | ✅ |
+| 2.4.10 | ✅ |
+| 2.4.20 | ✅ |
 
 - **미지원 버전**: 경고 1회 출력 후 컴파일러 플러그인만 비활성화. 빌드는 정상 진행.
 
@@ -323,7 +327,7 @@ Composable-Nametag은 **release 빌드에서 완전히 제외**됩니다:
 
 ## 기술 스택
 
-- Kotlin 2.1.21 ~ 2.3.20
+- Kotlin 2.1.21 ~ 2.4.20
 - AGP 8.6.1
 - Compose BOM 2025.05.01
 - Gradle 8.7
