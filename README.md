@@ -159,7 +159,7 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
 ### Requirements
 
 - Android API 24 (Android 7.0) or higher
-- Kotlin **2.1.21 ~ 2.3.20** (see [Supported Versions](#kotlin-version-compatibility))
+- Kotlin **2.1.21 ~ 2.4.20** (see [Supported Versions](#kotlin-version-compatibility))
 - Jetpack Compose (BOM 2025.05.01 or compatible)
 - JDK 17+
 
@@ -293,6 +293,10 @@ The Gradle plugin auto-detects your Kotlin version and resolves the matching com
 | 2.3.0 | ✅ |
 | 2.3.10 | ✅ |
 | 2.3.20 | ✅ |
+| 2.3.21 | ✅ |
+| 2.4.0 | ✅ |
+| 2.4.10 | ✅ |
+| 2.4.20 | ✅ |
 
 - **Unsupported versions**: Logs a warning once and disables only the compiler plugin. The build proceeds normally.
 
@@ -322,7 +326,7 @@ Composable-Nametag is **completely excluded from release builds**:
 
 ## Tech Stack
 
-- Kotlin 2.1.21 ~ 2.3.20
+- Kotlin 2.1.21 ~ 2.4.20
 - AGP 8.6.1
 - Compose BOM 2025.05.01
 - Gradle 8.7
