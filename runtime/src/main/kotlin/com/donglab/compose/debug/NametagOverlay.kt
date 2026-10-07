@@ -6,8 +6,10 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.RenderNode
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,6 +17,7 @@ import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.Choreographer
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import androidx.compose.runtime.tooling.CompositionData
 import kotlin.math.absoluteValue
@@ -22,6 +25,12 @@ import kotlin.math.absoluteValue
 private const val MIN_SCAN_INTERVAL_MS = 100L
 private const val MAX_SCAN_INTERVAL_MS = 800L
 private const val STEP_BUDGET_NANOS = 2_000_000L
+
+/** Draws in a row without any label moving before positions are checked less often. */
+private const val STILL_DRAWS_BEFORE_SPARSE = 8
+
+/** While still, positions are checked on every Nth draw (≈ 30 times a second at 120 Hz). */
+private const val SPARSE_FOLLOW_EVERY = 4
 
 /**
  * Tracks which compositions carry name tags, per window root view.
@@ -89,18 +98,20 @@ internal object NametagRegistry {
 }
 
 /**
- * Paints the labels of one window on top of everything, via the root view's [View.getOverlay].
+ * Finds and places the labels of one window; each ComposeView paints its own through [HostLabels].
  *
- * Labels live outside the app's layout tree: they never shift layout, never get clipped by a
- * parent and are never covered by a sibling. A scan runs after a frame is drawn, at most every
+ * Labels live outside the app's layout tree, so they never shift layout. They are painted on the
+ * ComposeView's [View.getOverlay], right after its content: a view stacked over that ComposeView
+ * covers them like it covers the content. A scan runs after a frame is drawn, at most every
  * [MIN_SCAN_INTERVAL_MS]. While the result stays the same (an idle screen that only animates)
  * the interval doubles up to [MAX_SCAN_INTERVAL_MS]; a change or a name tag entering/leaving
- * resets it. The overlay is redrawn only when the result changes.
+ * resets it. Labels are repainted only when the result changes or the ComposeView redraws
+ * (scrolling), and then follow their composables in the same frame.
  *
  * A scan is a cycle split into short steps (about [STEP_BUDGET_NANOS] each: slot table walks and
- * bounds per composition, then selection and placement). Each step starts right after a frame
- * finishes (frame callback → post), so it uses the idle time before the next vsync instead of
- * delaying a pending frame; a cycle may span a few frames.
+ * bounds per composition, then linking, covers, selection and placement — one step each).
+ * Each step starts right after a frame finishes (frame callback → post), so it uses the idle time
+ * before the next vsync instead of delaying a pending frame; a cycle may span a few frames.
  *
  * Compositions whose host view is hidden or off screen (a kept-alive tab moved out of the window,
  * a hidden Fragment) are skipped, and bounds are clipped to the visible part of the host view.
@@ -108,7 +119,7 @@ internal object NametagRegistry {
  * Every callback the system invokes (pre-draw, frame, handler, draw, view detach) runs through
  * [NametagSafety] so that nothing thrown here reaches the host app.
  */
-internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObserver.OnPreDrawListener {
+internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDrawListener {
 
     private val handler = Handler(Looper.getMainLooper())
     private val choreographer = Choreographer.getInstance()
@@ -138,15 +149,17 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
     private var labels: List<PlacedLabel> = emptyList()
     private var cycleRunning = false
     private var cycleGroups: List<NamedGroup>? = null
+    private var coversCut = false
+    private var cycleTargets: List<LabelTarget>? = null
     private val painter = LabelPainter(root.resources.displayMetrics)
     private val tree = NametagTree()
+    private val hostLabels = HashMap<View, HostLabels>()
     private val windowOffset = IntArray(2)
     private val visibleRect = Rect()
     private val viewOrigin = IntArray(2)
 
     fun attach() {
         try {
-            root.overlay.add(this)
             root.viewTreeObserver.addOnPreDrawListener(this)
             root.addOnAttachStateChangeListener(rootAttachListener)
             requestScan()
@@ -161,9 +174,15 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
         quietly { cancelScan() }
         quietly { root.viewTreeObserver.takeIf { it.isAlive }?.removeOnPreDrawListener(this) }
         quietly { root.removeOnAttachStateChangeListener(rootAttachListener) }
-        quietly { root.overlay.remove(this) }
+        hostLabels.forEach { (view, labels) ->
+            quietly { view.overlay.remove(labels) }
+            quietly { labels.release() }
+        }
+        hostLabels.clear()
         cycleRunning = false
         cycleGroups = null
+        cycleTargets = null
+        coversCut = false
         labels = emptyList()
     }
 
@@ -223,17 +242,47 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
                 NametagSafety.failed("scan", t)
                 return@traceSection
             }
-            // 남은 단계(또는 선택·배치) 는 다음 프레임 뒤에 이어서
+            // 남은 단계(가림 → 선택 → 배치) 는 다음 프레임 뒤에 이어서 — 그 사이 움직인 만큼은 그릴 때 따라잡는다
+            requestScan(immediately = true)
+            return@traceSection
+        }
+        if (!coversCut) {
+            // 가림 계산은 따로 한 단계 — 선택 · 배치와 묶으면 한 단계가 길어진다
+            try {
+                traceSection("Nametag:covers") { tree.cutCovers() }
+            } catch (t: Throwable) {
+                cycleGroups = null
+                cycleRunning = false
+                NametagSafety.failed("scan", t)
+                return@traceSection
+            }
+            coversCut = true
+            requestScan(immediately = true)
+            return@traceSection
+        }
+        val targets = cycleTargets
+        if (targets == null) {
+            // 선택과 배치도 각각 한 단계씩
+            try {
+                cycleTargets = traceSection("Nametag:select") {
+                    selectLabelTargets(groups).map { it.copy(bounds = it.bounds.offset(cycleDx, cycleDy)) }
+                }
+            } catch (t: Throwable) {
+                cycleGroups = null
+                coversCut = false
+                cycleRunning = false
+                NametagSafety.failed("scan", t)
+                return@traceSection
+            }
             requestScan(immediately = true)
             return@traceSection
         }
         cycleGroups = null
+        cycleTargets = null
+        coversCut = false
         cycleRunning = false
 
         val placed = try {
-            val targets = traceSection("Nametag:select") {
-                selectLabelTargets(groups).map { it.copy(bounds = it.bounds.offset(cycleDx, cycleDy)) }
-            }
             traceSection("Nametag:place") {
                 placeLabels(targets, root.width.toFloat(), root.height.toFloat(), painter::measure)
             }
@@ -247,8 +296,24 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
         scanInterval = if (changed) MIN_SCAN_INTERVAL_MS else (scanInterval * 2).coerceAtMost(MAX_SCAN_INTERVAL_MS)
         if (!changed) return@traceSection
         labels = placed
-        setBounds(0, 0, root.width, root.height)
-        invalidateSelf()
+        show(placed)
+    }
+
+    /** Hands each ComposeView its labels; views left without labels drop their painter. */
+    private fun show(placed: List<PlacedLabel>) {
+        val byView = placed.groupBy { it.source?.host?.view }
+        val gone = hostLabels.keys.filter { it !in byView }
+        for (view in gone) {
+            hostLabels.remove(view)?.let { quietly { view.overlay.remove(it) }; quietly { it.release() } }
+        }
+        for ((view, labels) in byView) {
+            if (view == null) continue
+            val painterOfView = hostLabels[view] ?: HostLabels(view, tree, painter).also {
+                view.overlay.add(it)
+                hostLabels[view] = it
+            }
+            painterOfView.show(labels)
+        }
     }
 
     private var cycleDx = 0f
@@ -261,8 +326,9 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
         cycleDy = -windowOffset[1].toFloat()
         val hosts = traceSection("Nametag:hosts") {
             val hostViews = HashMap<View, HostView?>()
+            val opaqueParts = HashMap<View, List<LabelRect>>()
             NametagRegistry.viewsOf(root).mapValues { (_, view) ->
-                hostViews.getOrPut(view) { view.toHostView() }
+                hostViews.getOrPut(view) { view.toHostView(opaqueParts) }
             }
         }
         tree.begin(hosts)
@@ -270,7 +336,7 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
     }
 
     /** Visible part and origin of this view in window coordinates, `null` when hidden or fully off screen. */
-    private fun View.toHostView(): HostView? {
+    private fun View.toHostView(opaqueParts: MutableMap<View, List<LabelRect>>): HostView? {
         if (!isShown || !getGlobalVisibleRect(visibleRect)) return null
         getLocationInWindow(viewOrigin)
         // global = root view 좌표 → window 좌표
@@ -280,12 +346,125 @@ internal class NametagOverlay(private val root: View) : Drawable(), ViewTreeObse
             (visibleRect.right + windowOffset[0]).toFloat(),
             (visibleRect.bottom + windowOffset[1]).toFloat(),
         )
-        return HostView(clip, viewOrigin[0].toFloat(), viewOrigin[1].toFloat())
+        val originX = viewOrigin[0].toFloat()
+        val originY = viewOrigin[1].toFloat()
+        val covers = coversOnTop(clip, opaqueParts).map { it.offset(-originX, -originY) }
+        return HostView(this, clip, originX, originY, covers)
+    }
+
+    /**
+     * Opaque parts of the views drawn after this one that overlap [clip] (window coordinates) —
+     * e.g. an app bar laid over a scrolling ComposeView. Labels under them would be hidden.
+     * [opaqueParts] keeps each sibling's opaque parts for the cycle — ComposeViews share ancestors.
+     */
+    private fun View.coversOnTop(clip: LabelRect, opaqueParts: MutableMap<View, List<LabelRect>>): List<LabelRect> {
+        val covers = ArrayList<LabelRect>()
+        var child: View = this
+        var parent = child.parent as? ViewGroup
+        while (parent != null) {
+            val index = parent.indexOfChild(child)
+            for (i in 0 until parent.childCount) {
+                val sibling = parent.getChildAt(i)
+                if (sibling === child || !sibling.isDrawnAfter(child, i, index)) continue
+                val found = opaqueParts.getOrPut(sibling) { ArrayList<LabelRect>().also(sibling::collectOpaqueRects) }
+                found.filterTo(covers) { it.intersects(clip) }
+            }
+            child = parent
+            parent = child.parent as? ViewGroup
+        }
+        return covers
+    }
+
+    // ViewGroup 은 Z(elevation) 순으로, 같으면 자식 순서대로 그린다
+    private fun View.isDrawnAfter(other: View, index: Int, otherIndex: Int): Boolean =
+        z > other.z || (z == other.z && index > otherIndex)
+}
+
+/**
+ * Paints the labels of one ComposeView on its overlay.
+ *
+ * Positions are taken again from the layout nodes when the ComposeView redraws: it redraws after
+ * its own layout pass (a scroll moves items → relayout → redraw), so labels move with the content
+ * in the same frame instead of waiting for the next scan.
+ *
+ * Some screens redraw every frame while nothing moves (a running animation). To keep that cheap:
+ * - the painted labels are kept in a [RenderNode] (API 29+) and replayed until a position changes;
+ *   a RenderNode that missed a frame loses its content, so it is re-recorded when empty
+ * - after [STILL_DRAWS_BEFORE_SPARSE] draws without movement, positions are checked only every
+ *   [SPARSE_FOLLOW_EVERY]th draw; the first movement goes back to checking every draw
+ */
+private class HostLabels(
+    private val view: View,
+    private val tree: NametagTree,
+    private val painter: LabelPainter,
+) : Drawable() {
+
+    private var labels: List<PlacedLabel> = emptyList()
+    private var followed: List<LabelRect?>? = null
+    private var stillDraws = 0
+    private var drawsSinceFollow = 0
+    private val cache: RenderNode? = if (Build.VERSION.SDK_INT >= 29) RenderNode("Nametag") else null
+    private var cacheValid = false
+
+    fun show(labels: List<PlacedLabel>) {
+        this.labels = labels
+        followed = null
+        stillDraws = 0
+        setBounds(0, 0, view.width, view.height)
+        invalidateSelf()
+    }
+
+    fun release() {
+        if (Build.VERSION.SDK_INT >= 29) cache?.discardDisplayList()
     }
 
     override fun draw(canvas: Canvas) = NametagSafety.guard("draw") {
         traceSection("Nametag:draw") {
-            labels.forEach { painter.draw(canvas, it) }
+            if (shouldFollow()) follow()
+            val current = followed ?: return@traceSection
+            val width = view.width.toFloat()
+            val height = view.height.toFloat()
+            if (Build.VERSION.SDK_INT >= 29 && cache != null && canvas.isHardwareAccelerated) {
+                // 한 프레임이라도 그려지지 않으면 시스템이 RenderNode 내용을 버린다 — 그때는 다시 그림
+                if (!cacheValid || !cache.hasDisplayList() || cache.width != view.width || cache.height != view.height) {
+                    cache.setPosition(0, 0, view.width, view.height)
+                    val recording = cache.beginRecording()
+                    try {
+                        paint(recording, current, width, height)
+                    } finally {
+                        cache.endRecording()
+                    }
+                    cacheValid = true
+                }
+                canvas.drawRenderNode(cache)
+            } else {
+                paint(canvas, current, width, height)
+            }
+        }
+    }
+
+    private fun shouldFollow(): Boolean {
+        if (followed == null || stillDraws < STILL_DRAWS_BEFORE_SPARSE) return true
+        return ++drawsSinceFollow >= SPARSE_FOLLOW_EVERY
+    }
+
+    private fun follow() = traceSection("Nametag:follow") {
+        drawsSinceFollow = 0
+        val now = labels.map { label -> label.source?.let(tree::follow) }
+        if (now == followed) {
+            stillDraws++
+        } else {
+            stillDraws = 0
+            followed = now
+            cacheValid = false
+        }
+    }
+
+    private fun paint(canvas: Canvas, bounds: List<LabelRect?>, width: Float, height: Float) {
+        for (i in labels.indices) {
+            val rect = bounds.getOrNull(i) ?: continue
+            val label = labels[i]
+            painter.draw(canvas, label.name, rect, label.offsetY, width, height)
         }
     }
 
@@ -336,13 +515,18 @@ private class LabelPainter(metrics: DisplayMetrics) {
         LabelSize(textPaint.measureText(name) + paddingH * 2, textHeight + paddingV * 2)
     }
 
-    fun draw(canvas: Canvas, label: PlacedLabel) {
-        val rect = label.rect
-        rectF.set(rect.left, rect.top, rect.right, rect.bottom)
-        fillPaint.color = overlayColors[label.name.hashCode().absoluteValue.mod(overlayColors.size)]
+    /** Draws [name] at the top-left of [bounds], [offsetY] down (stacked), kept inside a view of [viewWidth] × [viewHeight]. */
+    fun draw(canvas: Canvas, name: String, bounds: LabelRect, offsetY: Float, viewWidth: Float, viewHeight: Float) {
+        val size = measure(name)
+        drawChip(canvas, name, labelLeft(bounds, size.width, viewWidth), labelTop(bounds, offsetY, size.height, viewHeight), size)
+    }
+
+    private fun drawChip(canvas: Canvas, name: String, left: Float, top: Float, size: LabelSize) {
+        rectF.set(left, top, left + size.width, top + size.height)
+        fillPaint.color = overlayColors[name.hashCode().absoluteValue.mod(overlayColors.size)]
         canvas.drawRoundRect(rectF, corner, corner, fillPaint)
         canvas.drawRoundRect(rectF, corner, corner, borderPaint)
-        canvas.drawText(label.name, rect.left + paddingH, rect.top + paddingV - fontMetrics.ascent, textPaint)
+        canvas.drawText(name, left + paddingH, top + paddingV - fontMetrics.ascent, textPaint)
     }
 }
 
