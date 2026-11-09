@@ -202,7 +202,8 @@ At runtime the slot table is read the same way Layout Inspector does to find the
 | Covered by a view on top → skipped | A screen behind a Fragment page opened in an `AndroidView` |
 
 - **Placement** — Labels sit at the top-left of their area, parents first. When the spot is taken, a label stacks right below the one in the way, so nested names always read top to bottom (`MovieRow` › `MovieItem` › `PosterBadges`). A label that would start below its area is dropped.
-- **Scrolling** — When content moves, labels move with it in the same frame. Items that newly scroll in get their label on the next update.
+- **Scrolling** — Labels are placed by the full layout of each composable, not by the part currently on screen, so they stay attached to their item and move with it in the same frame instead of jumping around. Items that newly scroll in get their label on the next update.
+- **Edges** — A label is never drawn sliced: when its item is cut at a screen or list edge and the label doesn't fit, it is skipped; a label wider than an uncut item at the screen edge is pulled back inside.
 - **Performance** — Updates run in ~2ms steps in the idle time between frames, so they do not delay frames while scrolling. On a still screen the update interval backs off up to 800ms, and labels that did not move are redrawn from a cache.
 
 <br>
