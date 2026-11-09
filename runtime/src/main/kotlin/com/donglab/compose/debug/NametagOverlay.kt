@@ -433,7 +433,8 @@ private class HostLabels(
         for (i in labels.indices) {
             val at = positions.getOrNull(i) ?: continue
             val label = labels[i]
-            painter.draw(canvas, label.name, at, label.offsetY, label.source?.covers.orEmpty())
+            val area = label.source?.host?.localClip ?: continue
+            painter.draw(canvas, label.name, at, label.offsetY, label.source?.covers.orEmpty(), area)
         }
     }
 
@@ -487,18 +488,24 @@ private class LabelPainter(metrics: DisplayMetrics) {
     /**
      * Draws [name] at the top-left of the full bounds, [offsetY] down (stacked).
      *
-     * Never draws a cut label: on a side where the composable itself is cut (screen edge, edge of a
-     * scrolling list) a label reaching past that edge is skipped instead of being sliced. A label
-     * over a part [covers] hide is skipped too.
+     * Never draws a cut label:
+     * - on a side where the composable itself is cut (screen edge, edge of a scrolling list), a label
+     *   reaching past that edge is skipped instead of being sliced
+     * - a label of a composable that is not cut but wider than it (a button at the screen edge) is
+     *   pulled back inside [area], the visible part of the host view
+     * A label over a part [covers] hide is skipped too.
      */
-    fun draw(canvas: Canvas, name: String, at: Followed, offsetY: Float, covers: List<LabelRect>) {
+    fun draw(canvas: Canvas, name: String, at: Followed, offsetY: Float, covers: List<LabelRect>, area: LabelRect) {
         val size = measure(name)
-        val left = labelLeft(at.full)
-        val top = labelTop(at.full, offsetY)
-        val right = left + size.width
-        val bottom = top + size.height
         val full = at.full
         val visible = at.visible
+        var left = labelLeft(full)
+        var top = labelTop(full, offsetY)
+        // 잘리지 않은 쪽으로 화면 밖에 넘치면 안쪽으로 당김
+        if (left + size.width > area.right && visible.right >= full.right - CUT_SLACK_PX) left = maxOf(area.left, area.right - size.width)
+        if (top + size.height > area.bottom && visible.bottom >= full.bottom - CUT_SLACK_PX) top = maxOf(area.top, area.bottom - size.height)
+        val right = left + size.width
+        val bottom = top + size.height
         if (visible.left > full.left + CUT_SLACK_PX && left < visible.left) return
         if (visible.top > full.top + CUT_SLACK_PX && top < visible.top) return
         if (visible.right < full.right - CUT_SLACK_PX && right > visible.right) return
