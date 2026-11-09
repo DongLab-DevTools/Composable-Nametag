@@ -17,7 +17,6 @@ import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.Choreographer
 import android.view.View
-import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import androidx.compose.runtime.tooling.CompositionData
 import kotlin.math.absoluteValue
@@ -284,7 +283,7 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
 
         val placed = try {
             traceSection("Nametag:place") {
-                placeLabels(targets, root.width.toFloat(), root.height.toFloat(), painter::measure)
+                placeLabels(targets, painter::measure)
             }
         } catch (t: Throwable) {
             NametagSafety.failed("scan", t)
@@ -326,9 +325,8 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
         cycleDy = -windowOffset[1].toFloat()
         val hosts = traceSection("Nametag:hosts") {
             val hostViews = HashMap<View, HostView?>()
-            val opaqueParts = HashMap<View, List<LabelRect>>()
             NametagRegistry.viewsOf(root).mapValues { (_, view) ->
-                hostViews.getOrPut(view) { view.toHostView(opaqueParts) }
+                hostViews.getOrPut(view) { view.toHostView() }
             }
         }
         tree.begin(hosts)
@@ -336,7 +334,7 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
     }
 
     /** Visible part and origin of this view in window coordinates, `null` when hidden or fully off screen. */
-    private fun View.toHostView(opaqueParts: MutableMap<View, List<LabelRect>>): HostView? {
+    private fun View.toHostView(): HostView? {
         if (!isShown || !getGlobalVisibleRect(visibleRect)) return null
         getLocationInWindow(viewOrigin)
         // global = root view 좌표 → window 좌표
@@ -346,38 +344,8 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
             (visibleRect.right + windowOffset[0]).toFloat(),
             (visibleRect.bottom + windowOffset[1]).toFloat(),
         )
-        val originX = viewOrigin[0].toFloat()
-        val originY = viewOrigin[1].toFloat()
-        val covers = coversOnTop(clip, opaqueParts).map { it.offset(-originX, -originY) }
-        return HostView(this, clip, originX, originY, covers)
+        return HostView(this, clip, viewOrigin[0].toFloat(), viewOrigin[1].toFloat())
     }
-
-    /**
-     * Opaque parts of the views drawn after this one that overlap [clip] (window coordinates) —
-     * e.g. an app bar laid over a scrolling ComposeView. Labels under them would be hidden.
-     * [opaqueParts] keeps each sibling's opaque parts for the cycle — ComposeViews share ancestors.
-     */
-    private fun View.coversOnTop(clip: LabelRect, opaqueParts: MutableMap<View, List<LabelRect>>): List<LabelRect> {
-        val covers = ArrayList<LabelRect>()
-        var child: View = this
-        var parent = child.parent as? ViewGroup
-        while (parent != null) {
-            val index = parent.indexOfChild(child)
-            for (i in 0 until parent.childCount) {
-                val sibling = parent.getChildAt(i)
-                if (sibling === child || !sibling.isDrawnAfter(child, i, index)) continue
-                val found = opaqueParts.getOrPut(sibling) { ArrayList<LabelRect>().also(sibling::collectOpaqueRects) }
-                found.filterTo(covers) { it.intersects(clip) }
-            }
-            child = parent
-            parent = child.parent as? ViewGroup
-        }
-        return covers
-    }
-
-    // ViewGroup 은 Z(elevation) 순으로, 같으면 자식 순서대로 그린다
-    private fun View.isDrawnAfter(other: View, index: Int, otherIndex: Int): Boolean =
-        z > other.z || (z == other.z && index > otherIndex)
 }
 
 /**
@@ -400,7 +368,7 @@ private class HostLabels(
 ) : Drawable() {
 
     private var labels: List<PlacedLabel> = emptyList()
-    private var followed: List<LabelRect?>? = null
+    private var followed: List<Followed?>? = null
     private var stillDraws = 0
     private var drawsSinceFollow = 0
     private val cache: RenderNode? = if (Build.VERSION.SDK_INT >= 29) RenderNode("Nametag") else null
@@ -422,15 +390,13 @@ private class HostLabels(
         traceSection("Nametag:draw") {
             if (shouldFollow()) follow()
             val current = followed ?: return@traceSection
-            val width = view.width.toFloat()
-            val height = view.height.toFloat()
             if (Build.VERSION.SDK_INT >= 29 && cache != null && canvas.isHardwareAccelerated) {
                 // 한 프레임이라도 그려지지 않으면 시스템이 RenderNode 내용을 버린다 — 그때는 다시 그림
                 if (!cacheValid || !cache.hasDisplayList() || cache.width != view.width || cache.height != view.height) {
                     cache.setPosition(0, 0, view.width, view.height)
                     val recording = cache.beginRecording()
                     try {
-                        paint(recording, current, width, height)
+                        paint(recording, current)
                     } finally {
                         cache.endRecording()
                     }
@@ -438,7 +404,7 @@ private class HostLabels(
                 }
                 canvas.drawRenderNode(cache)
             } else {
-                paint(canvas, current, width, height)
+                paint(canvas, current)
             }
         }
     }
@@ -460,11 +426,11 @@ private class HostLabels(
         }
     }
 
-    private fun paint(canvas: Canvas, bounds: List<LabelRect?>, width: Float, height: Float) {
+    private fun paint(canvas: Canvas, positions: List<Followed?>) {
         for (i in labels.indices) {
-            val rect = bounds.getOrNull(i) ?: continue
+            val at = positions.getOrNull(i) ?: continue
             val label = labels[i]
-            painter.draw(canvas, label.name, rect, label.offsetY, width, height)
+            painter.draw(canvas, label.name, at, label.offsetY, label.source?.covers.orEmpty())
         }
     }
 
@@ -515,10 +481,23 @@ private class LabelPainter(metrics: DisplayMetrics) {
         LabelSize(textPaint.measureText(name) + paddingH * 2, textHeight + paddingV * 2)
     }
 
-    /** Draws [name] at the top-left of [bounds], [offsetY] down (stacked), kept inside a view of [viewWidth] × [viewHeight]. */
-    fun draw(canvas: Canvas, name: String, bounds: LabelRect, offsetY: Float, viewWidth: Float, viewHeight: Float) {
+    /**
+     * Draws [name] at the top-left of the full bounds, [offsetY] down (stacked), clipped to the visible
+     * part like content in a scrolling list would be. A label over a part [covers] hide is skipped.
+     */
+    fun draw(canvas: Canvas, name: String, at: Followed, offsetY: Float, covers: List<LabelRect>) {
         val size = measure(name)
-        drawChip(canvas, name, labelLeft(bounds, size.width, viewWidth), labelTop(bounds, offsetY, size.height, viewHeight), size)
+        val left = labelLeft(at.full)
+        val top = labelTop(at.full, offsetY)
+        val visible = at.visible
+        if (left >= visible.right || left + size.width <= visible.left || top >= visible.bottom || top + size.height <= visible.top) return
+        for (cover in covers) {
+            if (left < cover.right && cover.left < left + size.width && top < cover.bottom && cover.top < top + size.height) return
+        }
+        val saved = canvas.save()
+        canvas.clipRect(visible.left, visible.top, visible.right, visible.bottom)
+        drawChip(canvas, name, left, top, size)
+        canvas.restoreToCount(saved)
     }
 
     private fun drawChip(canvas: Canvas, name: String, left: Float, top: Float, size: LabelSize) {

@@ -59,7 +59,8 @@ internal data class LabelRect(val left: Float, val top: Float, val right: Float,
  * A composable found in the slot table.
  *
  * @property parent nearest labeled ancestor (may live in a parent composition)
- * @property bounds what this composable actually drew, `null` when nothing is visible
+ * @property bounds full layout bounds of what this composable drew (not clipped, so scrolling doesn't
+ * change them), `null` when no part of it is visible
  * @property isListItem first name of a repeated list item composition (LazyRow / LazyColumn item)
  */
 internal class NamedGroup(
@@ -76,6 +77,9 @@ internal class NamedGroup(
 
     /** Parts of the host drawn on top of this composable (host view coordinates), e.g. a page in an AndroidView. */
     var covers: List<LabelRect> = emptyList()
+
+    /** The part of [bounds] actually visible (clipped by scrolling containers and the host view). */
+    var visibleBounds: LabelRect? = null
 }
 
 /** @property depth labeled ancestors above it — parents are placed before their children */
@@ -159,8 +163,6 @@ private fun depthInListItem(group: NamedGroup, shown: Set<NamedGroup>): Int {
  */
 internal fun placeLabels(
     targets: List<LabelTarget>,
-    viewWidth: Float,
-    viewHeight: Float,
     measure: (String) -> LabelSize,
 ): List<PlacedLabel> {
     val sorted = targets.sortedWith(compareBy<LabelTarget> { it.depth }.thenByDescending { it.bounds.area })
@@ -171,16 +173,16 @@ internal fun placeLabels(
     for (target in sorted) {
         val size = measure(target.name)
         val bounds = target.bounds
-        val left = labelLeft(bounds, size.width, viewWidth)
-        var top = labelTop(bounds, 0f, size.height, viewHeight)
+        val left = labelLeft(bounds)
+        var top = labelTop(bounds, 0f)
         var fits = true
         var steps = 0
         while (true) {
             val below = bottomOfCollisions(placedRects, placedCount, left, top, left + size.width, top + size.height)
             if (below < 0f) break
-            // 막은 라벨 바로 아래로 — 영역 · 화면 밖으로 나가거나 너무 깊게 쌓이면 생략
+            // 막은 라벨 바로 아래로 — 영역 밖으로 나가거나 너무 깊게 쌓이면 생략
             top = below
-            if (++steps > MAX_STACK_STEPS || top >= bounds.bottom || top + size.height > viewHeight) {
+            if (++steps > MAX_STACK_STEPS || top >= bounds.bottom) {
                 fits = false
                 break
             }
@@ -198,20 +200,11 @@ internal fun placeLabels(
     return placed
 }
 
-/** Left edge of a label of [width] at the left of [bounds], kept inside the view. */
-internal fun labelLeft(bounds: LabelRect, width: Float, viewWidth: Float): Float =
-    clampStart(bounds.left, width, viewWidth)
+/** Left edge of a label at the left of [bounds]. Not pulled into the view, so it moves with its composable. */
+internal fun labelLeft(bounds: LabelRect): Float = bounds.left
 
-/** Top edge of a label of [height] stacked [offsetY] below the top of [bounds], kept inside the view. */
-internal fun labelTop(bounds: LabelRect, offsetY: Float, height: Float, viewHeight: Float): Float =
-    clampStart(bounds.top + offsetY, height, viewHeight)
-
-/** Pulls a label back into the view: overflow at the end first, then at the start. */
-private fun clampStart(start: Float, length: Float, viewLength: Float): Float = when {
-    start + length > viewLength -> viewLength - length
-    start < 0f -> 0f
-    else -> start
-}
+/** Top edge of a label stacked [offsetY] below the top of [bounds]. */
+internal fun labelTop(bounds: LabelRect, offsetY: Float): Float = bounds.top + offsetY
 
 /** Lowest bottom among placed rects overlapping the given one, -1 when nothing overlaps. */
 private fun bottomOfCollisions(rects: FloatArray, count: Int, left: Float, top: Float, right: Float, bottom: Float): Float {

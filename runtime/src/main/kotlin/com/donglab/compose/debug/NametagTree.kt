@@ -19,16 +19,12 @@ private const val MAX_COVER_DEPTH = 6
 /**
  * Where a composition is shown: its ComposeView, the visible part of it and the view's origin,
  * clip and origin in window coordinates.
- *
- * @property covers parts hidden by views drawn on top of the ComposeView (a top bar over a list),
- * in the host view's own coordinates
  */
 internal class HostView(
     val view: View,
     val clip: LabelRect,
     val originX: Float,
     val originY: Float,
-    val covers: List<LabelRect> = emptyList(),
 ) {
     /** [clip] in the host view's own coordinates (= compose root coordinates). */
     val localClip: LabelRect = clip.offset(-originX, -originY)
@@ -113,14 +109,12 @@ internal class NametagTree {
     }
 
     /**
-     * Current bounds of [group] in its host view's coordinates: clipped like the scan did and with
-     * covered parts cut out. Cheap enough to run on every frame for the shown labels.
+     * Where [group] is now, in its host view's coordinates: full bounds to place the label and the
+     * visible part to clip it. Cheap enough to run on every frame for the shown labels.
      */
-    fun follow(group: NamedGroup): LabelRect? {
+    fun follow(group: NamedGroup): Followed? {
         val host = group.host ?: return null
-        var bounds = group.nodes.shownBounds(host) ?: return null
-        for (cover in group.covers) bounds = bounds.minus(cover) ?: return null
-        return bounds
+        return group.nodes.boundsIn(host)
     }
 
     // ── 한 번의 갱신을 여러 프레임에 나눠 실행하는 사이클 ──────────────
@@ -176,7 +170,10 @@ internal class NametagTree {
                         for (group in scan.named) {
                             group.host = host
                             group.covers = emptyList()
-                            group.bounds = host?.let { group.nodes.shownBounds(it)?.offset(it.originX, it.originY) }
+                            // 배치는 잘리기 전 영역으로 — 스크롤해도 아이템 안에서 라벨 자리가 바뀌지 않는다
+                            val bounds = host?.let { group.nodes.boundsIn(it) }
+                            group.visibleBounds = bounds?.visible?.offset(host.originX, host.originY)
+                            group.bounds = bounds?.full?.offset(host.originX, host.originY)
                         }
                     }
                 }
@@ -214,7 +211,7 @@ internal class NametagTree {
     }
 
     /** Node bounds taken during one bounds step — a wrapper chain shares its first node, so each is measured once. */
-    private var measured: HashMap<LayoutInfo, LabelRect?>? = null
+    private var measured: HashMap<LayoutInfo, NodeBounds?>? = null
 
     /** Number of slot table walks so far — tells [step] whether the current step already did one. */
     private var rescanned = 0
@@ -305,7 +302,7 @@ internal class NametagTree {
     private fun markListItems(hostNode: LayoutInfo, items: List<NamedGroup>, view: HostView?) {
         val repeats = items.groupingBy { it.name }.eachCount().values.any { it >= 2 }
         if (!repeats) return
-        val hostBounds = view?.let { listOf(hostNode).visibleBounds(it) }
+        val hostBounds = view?.let { host -> listOf(hostNode).boundsIn(host)?.full?.offset(host.originX, host.originY) }
         for (item in items) {
             val bounds = item.bounds ?: continue
             item.isListItem = hostBounds == null || !bounds.isCloseTo(hostBounds, SAME_BOUNDS_TOLERANCE_PX)
@@ -344,7 +341,7 @@ internal class NametagTree {
         for ((data, scan) in scans) {
             val host = hosts[data] ?: continue
             for (group in scan.named) {
-                var visible: LabelRect? = group.bounds ?: continue
+                var visible: LabelRect? = group.visibleBounds ?: continue
                 val first = group.nodes.firstOrNull() ?: continue
                 var cut: ArrayList<LabelRect>? = null
                 for (cover in covers) {
@@ -357,8 +354,9 @@ internal class NametagTree {
                         visible = current.minus(rect)
                     }
                 }
+                // 라벨 자리는 그대로 두고, 그릴 때 가려진 곳에 걸린 라벨만 뺀다 — 완전히 가려지면 라벨 x
                 group.covers = cut ?: continue
-                group.bounds = visible
+                if (visible == null) group.bounds = null
             }
         }
     }
@@ -411,63 +409,61 @@ internal class NametagTree {
         return tag
     }
 
-    /** [localBounds] shifted to window coordinates. */
-    private fun List<LayoutInfo>.visibleBounds(host: HostView): LabelRect? =
-        localBounds(host)?.offset(host.originX, host.originY)
-
-    /** [localBounds] without the parts views on top of the ComposeView hide (host coordinates). */
-    private fun List<LayoutInfo>.shownBounds(host: HostView): LabelRect? {
-        var bounds = localBounds(host) ?: return null
-        for (cover in host.covers) bounds = bounds.minus(cover) ?: return null
-        return bounds
-    }
-
     /**
-     * Union of the nodes' bounds in host view coordinates, clipped by their clipping ancestors and
-     * by the visible part of the host view.
+     * Full and visible bounds of the nodes in host view coordinates (= compose root coordinates),
+     * `null` when no part is visible. Visible = clipped by clipping ancestors and the host view.
      *
      * `boundsInWindow()` recomputes the view's window position on every call (4× per node), so the
-     * bounds are taken in compose root coordinates, which are the host view's own coordinates.
+     * bounds are taken in compose root coordinates and shifted by the host origin when needed.
      */
-    private fun List<LayoutInfo>.localBounds(host: HostView): LabelRect? {
-        var union: LabelRect? = null
+    private fun List<LayoutInfo>.boundsIn(host: HostView): Followed? {
+        var full: LabelRect? = null
+        var visible: LabelRect? = null
         for (node in this) {
-            val bounds = node.clippedBounds(host) ?: continue
-            union = union?.union(bounds) ?: bounds
+            val bounds = node.measure(host) ?: continue
+            full = full?.union(bounds.full) ?: bounds.full
+            val shown = bounds.visible ?: continue
+            visible = visible?.union(shown) ?: shown
         }
-        return union
+        return if (full != null && visible != null) Followed(full, visible) else null
     }
 
-    /** One node's bounds in host coordinates, clipped like [localBounds]; memoized while measuring. */
-    private fun LayoutInfo.clippedBounds(host: HostView): LabelRect? {
+    /** One node's bounds; memoized while measuring (a wrapper chain shares its first node). */
+    private fun LayoutInfo.measure(host: HostView): NodeBounds? {
         val cache = measured
         if (cache != null && cache.containsKey(this)) return cache[this]
-        val bounds = measureClipped(host)
+        val bounds = measureNow(host)
         cache?.put(this, bounds)
         return bounds
     }
 
-    private fun LayoutInfo.measureClipped(host: HostView): LabelRect? {
-        val rect = try {
+    private fun LayoutInfo.measureNow(host: HostView): NodeBounds? {
+        val (full, clipped) = try {
             if (!isAttached || !isPlaced) return null
             val coordinates = coordinates
             if (!coordinates.isAttached) return null
             val root = host.rootCoordinates?.takeIf { it.isAttached }
                 ?: coordinates.findRootCoordinates().also { host.rootCoordinates = it }
-            root.localBoundingBoxOf(coordinates)
+            root.localBoundingBoxOf(coordinates, clipBounds = false) to root.localBoundingBoxOf(coordinates)
         } catch (_: Throwable) {
             // 사이클 사이에 떨어져 나간 노드 · 다른 루트의 노드 — 이번에는 영역 없음
             return null
         }
         val clip = host.localClip
-        val left = maxOf(rect.left, clip.left)
-        val top = maxOf(rect.top, clip.top)
-        val right = minOf(rect.right, clip.right)
-        val bottom = minOf(rect.bottom, clip.bottom)
-        if (right <= left || bottom <= top) return null
-        return LabelRect(left, top, right, bottom)
+        val left = maxOf(clipped.left, clip.left)
+        val top = maxOf(clipped.top, clip.top)
+        val right = minOf(clipped.right, clip.right)
+        val bottom = minOf(clipped.bottom, clip.bottom)
+        val visible = if (right <= left || bottom <= top) null else LabelRect(left, top, right, bottom)
+        return NodeBounds(LabelRect(full.left, full.top, full.right, full.bottom), visible)
     }
 }
+
+/** One node's full layout bounds and the visible part of them, `null` when clipped out (host coordinates). */
+private class NodeBounds(val full: LabelRect, val visible: LabelRect?)
+
+/** Where a composable is this frame: full bounds to place its label, visible part to clip it (host coordinates). */
+internal data class Followed(val full: LabelRect, val visible: LabelRect)
 
 private val coverLocation = IntArray(2)
 
