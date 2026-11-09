@@ -28,6 +28,9 @@ private const val STEP_BUDGET_NANOS = 2_000_000L
 /** Draws in a row without any label moving before positions are checked less often. */
 private const val STILL_DRAWS_BEFORE_SPARSE = 8
 
+/** Rounding slack when telling whether a composable is cut on a side (px). */
+private const val CUT_SLACK_PX = 0.5f
+
 /** While still, positions are checked on every Nth draw (≈ 30 times a second at 120 Hz). */
 private const val SPARSE_FOLLOW_EVERY = 4
 
@@ -482,22 +485,28 @@ private class LabelPainter(metrics: DisplayMetrics) {
     }
 
     /**
-     * Draws [name] at the top-left of the full bounds, [offsetY] down (stacked), clipped to the visible
-     * part like content in a scrolling list would be. A label over a part [covers] hide is skipped.
+     * Draws [name] at the top-left of the full bounds, [offsetY] down (stacked).
+     *
+     * Never draws a cut label: on a side where the composable itself is cut (screen edge, edge of a
+     * scrolling list) a label reaching past that edge is skipped instead of being sliced. A label
+     * over a part [covers] hide is skipped too.
      */
     fun draw(canvas: Canvas, name: String, at: Followed, offsetY: Float, covers: List<LabelRect>) {
         val size = measure(name)
         val left = labelLeft(at.full)
         val top = labelTop(at.full, offsetY)
+        val right = left + size.width
+        val bottom = top + size.height
+        val full = at.full
         val visible = at.visible
-        if (left >= visible.right || left + size.width <= visible.left || top >= visible.bottom || top + size.height <= visible.top) return
+        if (visible.left > full.left + CUT_SLACK_PX && left < visible.left) return
+        if (visible.top > full.top + CUT_SLACK_PX && top < visible.top) return
+        if (visible.right < full.right - CUT_SLACK_PX && right > visible.right) return
+        if (visible.bottom < full.bottom - CUT_SLACK_PX && bottom > visible.bottom) return
         for (cover in covers) {
-            if (left < cover.right && cover.left < left + size.width && top < cover.bottom && cover.top < top + size.height) return
+            if (left < cover.right && cover.left < right && top < cover.bottom && cover.top < bottom) return
         }
-        val saved = canvas.save()
-        canvas.clipRect(visible.left, visible.top, visible.right, visible.bottom)
         drawChip(canvas, name, left, top, size)
-        canvas.restoreToCount(saved)
     }
 
     private fun drawChip(canvas: Canvas, name: String, left: Float, top: Float, size: LabelSize) {
