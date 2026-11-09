@@ -103,7 +103,7 @@ class NametagRulesTest {
     private val labelSize = LabelSize(width = 100f, height = 20f)
 
     private fun place(vararg targets: LabelTarget) =
-        placeLabels(targets.toList(), viewWidth = 1000f, viewHeight = 1000f) { labelSize }
+        placeLabels(targets.toList()) { labelSize }
 
     @Test
     fun `부모를 먼저 좌상단에 놓고 같은 자리의 자식은 바로 아래에 쌓는다`() {
@@ -174,12 +174,13 @@ class NametagRulesTest {
     }
 
     @Test
-    fun `화면 밖으로 나가는 라벨은 화면 안으로 당긴다`() {
+    fun `화면 끝에 걸린 영역도 라벨을 안쪽으로 당기지 않는다`() {
+        // 스크롤로 화면 끝에 걸려도 라벨은 아이템에 붙은 채 같이 움직인다 (넘친 부분은 그릴 때 잘림)
         val edge = LabelTarget("Edge", LabelRect(950f, 990f, 1000f, 1000f))
 
         val placed = place(edge)
 
-        assertEquals(LabelRect(900f, 980f, 1000f, 1000f), placed.single().rect)
+        assertEquals(LabelRect(950f, 990f, 1050f, 1010f), placed.single().rect)
     }
 
     @Test
@@ -191,7 +192,7 @@ class NametagRulesTest {
         val moved = LabelRect(0f, -100f + 200f, 60f, -70f + 200f)
 
         assertEquals(20f, stacked.offsetY)
-        assertEquals(moved.top + 20f, labelTop(moved, stacked.offsetY, labelSize.height, viewHeight = 1000f))
+        assertEquals(moved.top + 20f, labelTop(moved, stacked.offsetY))
     }
 
     // ── minus (위에 그려진 것에 가려진 부분 빼기) ─────────────────
