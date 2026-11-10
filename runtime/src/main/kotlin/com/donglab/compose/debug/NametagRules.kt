@@ -6,8 +6,12 @@ import kotlin.math.abs
 /** Rounding slack when comparing two layout bounds (px). */
 internal const val SAME_BOUNDS_TOLERANCE_PX = 1.5f
 
-/** How many labels deep to show inside a list item (item itself = 0). */
-private const val MAX_DEPTH_IN_LIST_ITEM = 1
+/**
+ * How many labels deep to show inside a list item (item itself = 0). No limit by default: overlap is
+ * handled by placement (chains in one label, stacking, right alignment), and a limit dropped band
+ * headers, badges, and every poster of a single-item row.
+ */
+private const val MAX_DEPTH_IN_LIST_ITEM = Int.MAX_VALUE
 
 /** How many times a label may be pushed below another before it is dropped — keeps stacks readable and placement cheap. */
 internal const val MAX_STACK_STEPS = 4
@@ -107,6 +111,7 @@ internal data class LabelTarget(
     val source: NamedGroup? = null,
     val depth: Int = 0,
     val levels: List<String> = listOf(name),
+    val members: List<NamedGroup> = emptyList(),
 )
 
 internal data class LabelSize(val width: Float, val height: Float)
@@ -131,7 +136,7 @@ internal data class PlacedLabel(
  * - a wrapper chain with the same bounds (`MovieItem › Poster › AppTheme › Thumbnail`) becomes one
  *   label on the outermost composable, named after the whole chain, outer to inner — the specific
  *   name is often an inner one. Names at the same depth (siblings on the same bounds) join with `|`.
- * - inside a list item, only labels up to [maxDepthInListItem] levels deep are kept
+ * - inside a list item, only labels up to [maxDepthInListItem] levels deep are kept (no limit by default)
  *   (`ShortcutItem` › `ShortcutTitle` kept, › `TitleLine` skipped); a chain holding a list item
  *   counts as that list item
  */
@@ -153,7 +158,7 @@ internal fun selectLabelTargets(
     for ((head, chain) in chains) {
         if (depthInListItem(head, heads, chain.any { it.startsListItem() }) > maxDepthInListItem) continue
         val levels = chainLevels(head, chain)
-        targets += LabelTarget(levels.joinToString(CHAIN_SEPARATOR), head.bounds!!, head, depthOf(head), levels)
+        targets += LabelTarget(levels.joinToString(CHAIN_SEPARATOR), head.bounds!!, head, depthOf(head), levels, chain)
     }
     return targets
 }

@@ -343,6 +343,14 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
                 if (target.levels.size > 1) android.util.Log.d(TAG, "  chain: ${target.levels.joinToString(CHAIN_SEPARATOR)} → ${target.name}")
             }
             for (name in noRoom) android.util.Log.d(TAG, "  no room: $name")
+            // 보이는데 어느 라벨에도 들어가지 않은 이름 — 리스트 깊이 제한으로 빠진 것
+            val inTargets = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<NamedGroup, Boolean>())
+            targets.forEach { inTargets.addAll(it.members) }
+            for (group in groups) {
+                val b = group.bounds ?: continue
+                if (group in inTargets) continue
+                android.util.Log.d(TAG, "  list depth: ${group.name} @(${b.left.toInt()},${b.top.toInt()} ${b.width.toInt()}x${b.height.toInt()}) parent=${group.parent?.name}")
+            }
         } catch (_: Throwable) {
         }
     }
@@ -475,12 +483,32 @@ private class HostLabels(
         }
     }
 
+    private var lastSkipped: Set<String> = emptySet()
+
     private fun paint(canvas: Canvas, positions: List<Followed?>) {
+        var skipped: HashSet<String>? = null
         for (i in labels.indices) {
-            val at = positions.getOrNull(i) ?: continue
             val label = labels[i]
-            val area = label.source?.host?.localClip ?: continue
-            painter.draw(canvas, label.name, at, label.offsetX, label.offsetY, label.source?.covers.orEmpty(), area)
+            val at = positions.getOrNull(i)
+            val area = label.source?.host?.localClip
+            val reason = when {
+                at == null -> "not visible"
+                area == null -> "no host"
+                else -> painter.draw(canvas, label.name, at, label.offsetX, label.offsetY, label.source?.covers.orEmpty(), area)
+            } ?: continue
+            (skipped ?: HashSet<String>().also { skipped = it }) += "${label.name.replace(LINE_BREAK, " / ")} ($reason)"
+        }
+        logSkippedOnDraw(skipped.orEmpty())
+    }
+
+    // 그릴 때 빠진 라벨 — 디버그 로그가 켜져 있고 목록이 바뀔 때만
+    private fun logSkippedOnDraw(skipped: Set<String>) {
+        if (skipped == lastSkipped) return
+        lastSkipped = skipped
+        try {
+            if (!android.util.Log.isLoggable(TAG, android.util.Log.DEBUG)) return
+            for (name in skipped) android.util.Log.d(TAG, "  draw skip: $name")
+        } catch (_: Throwable) {
         }
     }
 
@@ -546,7 +574,7 @@ private class LabelPainter(metrics: DisplayMetrics) {
      *   pulled back inside [area], the visible part of the host view
      * A label over a part [covers] hide is skipped too.
      */
-    fun draw(canvas: Canvas, name: String, at: Followed, offsetX: Float, offsetY: Float, covers: List<LabelRect>, area: LabelRect) {
+    fun draw(canvas: Canvas, name: String, at: Followed, offsetX: Float, offsetY: Float, covers: List<LabelRect>, area: LabelRect): String? {
         val size = measure(name)
         val full = at.full
         val visible = at.visible
@@ -557,14 +585,15 @@ private class LabelPainter(metrics: DisplayMetrics) {
         if (top + size.height > area.bottom && visible.bottom >= full.bottom - CUT_SLACK_PX) top = maxOf(area.top, area.bottom - size.height)
         val right = left + size.width
         val bottom = top + size.height
-        if (visible.left > full.left + CUT_SLACK_PX && left < visible.left) return
-        if (visible.top > full.top + CUT_SLACK_PX && top < visible.top) return
-        if (visible.right < full.right - CUT_SLACK_PX && right > visible.right) return
-        if (visible.bottom < full.bottom - CUT_SLACK_PX && bottom > visible.bottom) return
+        if (visible.left > full.left + CUT_SLACK_PX && left < visible.left) return "cut left"
+        if (visible.top > full.top + CUT_SLACK_PX && top < visible.top) return "cut top"
+        if (visible.right < full.right - CUT_SLACK_PX && right > visible.right) return "cut right"
+        if (visible.bottom < full.bottom - CUT_SLACK_PX && bottom > visible.bottom) return "cut bottom"
         for (cover in covers) {
-            if (left < cover.right && cover.left < right && top < cover.bottom && cover.top < bottom) return
+            if (left < cover.right && cover.left < right && top < cover.bottom && cover.top < bottom) return "covered"
         }
         drawChip(canvas, name, left, top, size)
+        return null
     }
 
     private fun drawChip(canvas: Canvas, name: String, left: Float, top: Float, size: LabelSize) {

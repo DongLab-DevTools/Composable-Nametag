@@ -53,12 +53,24 @@ class NametagRulesTest {
     }
 
     @Test
+    fun `기본값은 리스트 아이템 안 깊이 제한이 없다`() {
+        // 포스터 하나뿐인 행처럼 반복으로 인식되지 않는 경우도 안쪽 이름이 모두 남음
+        val band = NamedGroup("Band", parent = null, bounds = LabelRect(0f, 0f, 1000f, 500f), isListItem = true)
+        val header = NamedGroup("BandHeader", parent = band, bounds = LabelRect(0f, 0f, 1000f, 60f))
+        val more = NamedGroup("BandMoreButton", parent = header, bounds = LabelRect(900f, 0f, 1000f, 60f))
+
+        val targets = selectLabelTargets(listOf(band, header, more))
+
+        assertEquals(listOf("Band", "BandHeader", "BandMoreButton"), targets.map { it.name })
+    }
+
+    @Test
     fun `리스트 아이템 안에서는 1단계까지만 남긴다`() {
         val shortcutItem = NamedGroup("ShortcutItem", parent = null, bounds = LabelRect(0f, 0f, 64f, 110f), isListItem = true)
         val title = NamedGroup("ShortcutTitle", parent = shortcutItem, bounds = LabelRect(0f, 70f, 64f, 110f))
         val line = NamedGroup("TitleLine", parent = title, bounds = LabelRect(0f, 70f, 64f, 90f))
 
-        val targets = selectLabelTargets(listOf(shortcutItem, title, line))
+        val targets = selectLabelTargets(listOf(shortcutItem, title, line), maxDepthInListItem = 1)
 
         assertEquals(listOf("ShortcutItem", "ShortcutTitle"), targets.map { it.name })
     }
@@ -70,7 +82,7 @@ class NametagRulesTest {
         val label = NamedGroup("PosterBadges", parent = thumbnail, bounds = LabelRect(0f, 0f, 300f, 40f))
         val badge = NamedGroup("PurchaseBadge", parent = label, bounds = LabelRect(0f, 0f, 40f, 20f))
 
-        val targets = selectLabelTargets(listOf(movieItem, thumbnail, label, badge))
+        val targets = selectLabelTargets(listOf(movieItem, thumbnail, label, badge), maxDepthInListItem = 1)
 
         assertEquals(listOf("MovieItem › Thumbnail", "PosterBadges"), targets.map { it.name })
     }
@@ -82,7 +94,7 @@ class NametagRulesTest {
         val shortcutItem = NamedGroup("ShortcutItem", parent = row, bounds = LabelRect(0f, 60f, 64f, 170f), isListItem = true)
         val icon = NamedGroup("ShortcutIcon", parent = shortcutItem, bounds = LabelRect(0f, 60f, 64f, 124f))
 
-        val targets = selectLabelTargets(listOf(section, row, shortcutItem, icon))
+        val targets = selectLabelTargets(listOf(section, row, shortcutItem, icon), maxDepthInListItem = 1)
 
         assertEquals(listOf("Section", "ShortcutRow", "ShortcutItem", "ShortcutIcon"), targets.map { it.name })
     }
@@ -130,7 +142,7 @@ class NametagRulesTest {
         val wrapper = NamedGroup("ItemWrapper", parent = row, bounds = LabelRect(0f, 60f, 300f, 510f))
         val movieItem = NamedGroup("MovieItem", parent = wrapper, bounds = LabelRect(0f, 60f, 300f, 510f), isListItem = true)
 
-        val targets = selectLabelTargets(listOf(section, row, wrapper, movieItem))
+        val targets = selectLabelTargets(listOf(section, row, wrapper, movieItem), maxDepthInListItem = 1)
 
         assertEquals(listOf("Section", "MovieRow", "ItemWrapper › MovieItem"), targets.map { it.name })
     }
@@ -143,7 +155,7 @@ class NametagRulesTest {
         val page = NamedGroup("RollingBannerPage", parent = pager, bounds = LabelRect(0f, 50f, 1000f, 500f), isPage = true)
         val image = NamedGroup("RollingBannerImage", parent = page, bounds = LabelRect(0f, 50f, 1000f, 400f))
 
-        val targets = selectLabelTargets(listOf(band, pager, page, image))
+        val targets = selectLabelTargets(listOf(band, pager, page, image), maxDepthInListItem = 1)
 
         assertEquals(listOf("BannerBand", "RollingBanner › RollingBannerPage", "RollingBannerImage"), targets.map { it.name })
     }
@@ -156,7 +168,7 @@ class NametagRulesTest {
         val header = NamedGroup("Header", parent = page, bounds = LabelRect(0f, 0f, 1000f, 100f))
         val title = NamedGroup("HeaderTitle", parent = header, bounds = LabelRect(0f, 0f, 500f, 100f))
 
-        val targets = selectLabelTargets(listOf(pager, page, header, title))
+        val targets = selectLabelTargets(listOf(pager, page, header, title), maxDepthInListItem = 1)
 
         assertEquals(listOf("HomePager › TabPage", "Header", "HeaderTitle"), targets.map { it.name })
     }
