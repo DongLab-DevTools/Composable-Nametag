@@ -10,7 +10,7 @@ internal const val SAME_BOUNDS_TOLERANCE_PX = 1.5f
 private const val MAX_DEPTH_IN_LIST_ITEM = 1
 
 /** How many times a label may be pushed below another before it is dropped — keeps stacks readable and placement cheap. */
-private const val MAX_STACK_STEPS = 4
+internal const val MAX_STACK_STEPS = 4
 
 internal data class LabelRect(val left: Float, val top: Float, val right: Float, val bottom: Float) {
     val width: Float get() = right - left
@@ -173,6 +173,35 @@ private fun chainLevels(head: NamedGroup, chain: List<NamedGroup>): List<String>
         byLevel.getOrPut(level) { ArrayList() } += group.name
     }
     return byLevel.values.map { it.joinToString(SIBLING_SEPARATOR) }
+}
+
+/** Share of an item's height a vertical stack of chain names may cover. */
+internal const val MAX_STACK_COVER_RATIO = 1f / 2f
+
+/**
+ * How a chain's names are shown on an item of [width] × [height]: one entry per label line.
+ *
+ * 1. one line `A › B › C`, when the whole chain fits the width
+ * 2. otherwise stacked one name per line, when every name fits the width and the stack covers at
+ *    most [MAX_STACK_COVER_RATIO] of the height
+ * 3. otherwise one line with the middle shortened by `…` (see [fitChainName]), or the outermost
+ *    name only when even that doesn't fit
+ */
+internal fun layoutChain(
+    levels: List<String>,
+    width: Float,
+    height: Float,
+    lineHeight: Float,
+    textWidth: (String) -> Float,
+): List<String> {
+    if (levels.size <= 1) return levels
+    val full = levels.joinToString(CHAIN_SEPARATOR)
+    if (textWidth(full) <= width) return listOf(full)
+    val stackFits = levels.size - 1 <= MAX_STACK_STEPS &&
+        levels.size * lineHeight <= height * MAX_STACK_COVER_RATIO &&
+        levels.all { textWidth(it) <= width }
+    if (stackFits) return levels
+    return listOf(fitChainName(levels, width, textWidth))
 }
 
 /**

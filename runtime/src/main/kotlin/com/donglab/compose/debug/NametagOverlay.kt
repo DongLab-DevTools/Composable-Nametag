@@ -267,10 +267,12 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
             // 선택과 배치도 각각 한 단계씩
             try {
                 cycleTargets = traceSection("Nametag:select") {
-                    selectLabelTargets(groups).map { target ->
-                        // 체인 이름이 라벨이 붙는 영역보다 길면 가운데를 줄임 — 옆 아이템 라벨을 밀어내지 않도록
-                        val name = fitChainName(target.levels, target.bounds.width) { painter.measure(it).width }
-                        target.copy(name = name, bounds = target.bounds.offset(cycleDx, cycleDy))
+                    val lineHeight = painter.measure(CHAIN_SEPARATOR).height
+                    selectLabelTargets(groups).flatMap { target ->
+                        val bounds = target.bounds.offset(cycleDx, cycleDy)
+                        // 세로로 쌓기 → 한 줄로 잇기 → 바깥 이름 하나 — 옆 아이템 라벨을 밀거나 화면을 덮지 않도록
+                        val lines = layoutChain(target.levels, bounds.width, bounds.height, lineHeight) { painter.measure(it).width }
+                        lines.mapIndexed { i, line -> target.copy(name = line, bounds = bounds, depth = target.depth + i) }
                     }
                 }
             } catch (t: Throwable) {

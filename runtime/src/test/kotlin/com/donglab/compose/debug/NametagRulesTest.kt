@@ -186,6 +186,42 @@ class NametagRulesTest {
         assertEquals("MultiBandContentInternal", fit(listOf("MultiBandContentInternal"), 100f))
     }
 
+    // ── layoutChain (세로 → 가로 → 바깥 이름) ─────────────────────────
+
+    // 한 글자 10px, 한 줄 20px
+    private fun layout(levels: List<String>, width: Float, height: Float) =
+        layoutChain(levels, width, height, lineHeight = 20f) { it.length * 10f }
+
+    private val poster = listOf("VodBasicBandItem", "VerticalThumbnail", "TdsTheme", "Thumbnail", "ThumbnailLabel")
+
+    @Test
+    fun `한 줄에 다 들어가면 세로로 쌓을 수 있어도 가로로 잇는다`() {
+        // 넓은 밴드 — 세로로도 들어가지만 가로가 먼저
+        assertEquals(listOf(poster.joinToString(" › ")), layout(poster, width = 900f, height = 1000f))
+    }
+
+    @Test
+    fun `한 줄에 안 들어가고 세로로 쌓아도 영역의 절반 이하면 한 줄씩 쌓는다`() {
+        // 5줄 = 100px ≤ 높이 200 의 1/2 · 가장 긴 이름 170px ≤ 폭 230
+        assertEquals(poster, layout(poster, width = 230f, height = 200f))
+    }
+
+    @Test
+    fun `세로로 쌓으면 절반을 넘게 가리면 가운데를 줄여 한 줄로 잇는다`() {
+        // 5줄 100px > 높이 150 의 1/2 · 가운데를 줄이면 폭 450 안에 들어감
+        assertEquals(listOf("VodBasicBandItem › … › ThumbnailLabel"), layout(poster, width = 400f, height = 150f))
+    }
+
+    @Test
+    fun `세로도 가로도 안 되면 바깥 이름 하나만 쓴다`() {
+        assertEquals(listOf("VodBasicBandItem"), layout(poster, width = 230f, height = 150f))
+    }
+
+    @Test
+    fun `이름 하나짜리 체인은 그대로 쓴다`() {
+        assertEquals(listOf("Poster"), layout(listOf("Poster"), width = 10f, height = 10f))
+    }
+
     // ── placeLabels ───────────────────────────────────────
 
     private val labelSize = LabelSize(width = 100f, height = 20f)
