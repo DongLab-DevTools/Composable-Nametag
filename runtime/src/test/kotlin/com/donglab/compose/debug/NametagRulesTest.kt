@@ -135,6 +135,32 @@ class NametagRulesTest {
         assertEquals(listOf("Section", "MovieRow", "ItemWrapper › MovieItem"), targets.map { it.name })
     }
 
+    @Test
+    fun `리스트 아이템 안 페이저의 페이지는 멈춰 있어도 리스트 아이템으로 센다`() {
+        // 롤링 배너 — 밴드(리스트 아이템) › 페이저 › 페이지. 페이지가 페이저를 꽉 채워도 사라지면 안 됨
+        val band = NamedGroup("BannerBand", parent = null, bounds = LabelRect(0f, 0f, 1000f, 500f), isListItem = true)
+        val pager = NamedGroup("RollingBanner", parent = band, bounds = LabelRect(0f, 50f, 1000f, 500f))
+        val page = NamedGroup("RollingBannerPage", parent = pager, bounds = LabelRect(0f, 50f, 1000f, 500f), isPage = true)
+        val image = NamedGroup("RollingBannerImage", parent = page, bounds = LabelRect(0f, 50f, 1000f, 400f))
+
+        val targets = selectLabelTargets(listOf(band, pager, page, image))
+
+        assertEquals(listOf("BannerBand", "RollingBanner › RollingBannerPage", "RollingBannerImage"), targets.map { it.name })
+    }
+
+    @Test
+    fun `리스트 밖 페이저의 페이지는 리스트 아이템으로 세지 않는다`() {
+        // 홈 탭 페이저 — 화면을 채운 페이지 안의 내용을 리스트 깊이로 제한하지 않음
+        val pager = NamedGroup("HomePager", parent = null, bounds = LabelRect(0f, 0f, 1000f, 2000f))
+        val page = NamedGroup("TabPage", parent = pager, bounds = LabelRect(0f, 0f, 1000f, 2000f), isPage = true)
+        val header = NamedGroup("Header", parent = page, bounds = LabelRect(0f, 0f, 1000f, 100f))
+        val title = NamedGroup("HeaderTitle", parent = header, bounds = LabelRect(0f, 0f, 500f, 100f))
+
+        val targets = selectLabelTargets(listOf(pager, page, header, title))
+
+        assertEquals(listOf("HomePager › TabPage", "Header", "HeaderTitle"), targets.map { it.name })
+    }
+
     // ── fitChainName ──────────────────────────────────────
 
     private val band = listOf("MultiBandContentInternal", "VodBasicBand", "TvingRowBand", "BandContainer")

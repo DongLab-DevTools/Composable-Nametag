@@ -62,12 +62,14 @@ internal data class LabelRect(val left: Float, val top: Float, val right: Float,
  * @property bounds full layout bounds of what this composable drew (not clipped, so scrolling doesn't
  * change them), `null` when no part of it is visible
  * @property isListItem first name of a repeated list item composition (LazyRow / LazyColumn item)
+ * @property isPage first name of a repeated composition that fills its host (a pager page)
  */
 internal class NamedGroup(
     val name: String,
     var parent: NamedGroup?,
     var bounds: LabelRect? = null,
     var isListItem: Boolean = false,
+    var isPage: Boolean = false,
 ) {
     /** Top-level layout nodes under this composable — re-measured every frame so the label sticks to them. */
     var nodes: List<LayoutInfo> = emptyList()
@@ -144,7 +146,7 @@ internal fun selectLabelTargets(
     val heads = chains.keys
     val targets = ArrayList<LabelTarget>(chains.size)
     for ((head, chain) in chains) {
-        if (depthInListItem(head, heads, chain.any { it.isListItem }) > maxDepthInListItem) continue
+        if (depthInListItem(head, heads, chain.any { it.startsListItem() }) > maxDepthInListItem) continue
         val levels = chainLevels(head, chain)
         targets += LabelTarget(levels.joinToString(CHAIN_SEPARATOR), head.bounds!!, head, depthOf(head), levels)
     }
@@ -205,15 +207,32 @@ private fun depthOf(group: NamedGroup): Int {
 
 /** Shown labels between [group] and its nearest list item. The item itself and anything outside a list = 0. */
 private fun depthInListItem(group: NamedGroup, shown: Set<NamedGroup>, holdsListItem: Boolean = false): Int {
-    if (group.isListItem || holdsListItem) return 0
+    if (group.startsListItem() || holdsListItem) return 0
     var depth = 0
     var ancestor = group.parent
     while (ancestor != null) {
         if (ancestor in shown) depth++
-        if (ancestor.isListItem) return depth
+        if (ancestor.startsListItem()) return depth
         ancestor = ancestor.parent
     }
     return 0
+}
+
+/**
+ * Where list depth counting restarts: a list item, or a pager page inside a list item (a rolling
+ * banner in a feed row). A settled page fills its pager, so it isn't a list item by bounds; without
+ * this its contents would count from the row and disappear whenever the pager stops.
+ * A pager outside any list (screen tabs) doesn't restart counting.
+ */
+private fun NamedGroup.startsListItem(): Boolean {
+    if (isListItem) return true
+    if (!isPage) return false
+    var ancestor = parent
+    while (ancestor != null) {
+        if (ancestor.isListItem) return true
+        ancestor = ancestor.parent
+    }
+    return false
 }
 
 /**
