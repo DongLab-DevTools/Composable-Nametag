@@ -279,8 +279,9 @@ class NametagRulesTest {
 
     @Test
     fun `쌓을 자리가 영역을 벗어나면 생략한다`() {
+        // 서로 감싸지 않는 두 라벨 (같은 깊이)
         val a = LabelTarget("A", LabelRect(0f, 0f, 100f, 20f))
-        val b = LabelTarget("B", LabelRect(0f, 0f, 100f, 20f), depth = 1)
+        val b = LabelTarget("B", LabelRect(0f, 0f, 90f, 20f))
 
         val placed = place(a, b)
 
@@ -317,6 +318,18 @@ class NametagRulesTest {
 
         assertEquals(20f, stacked.offsetY)
         assertEquals(moved.top + 20f, labelTop(moved, stacked.offsetY))
+    }
+
+    @Test
+    fun `조상의 세로 라벨에 밀린 자식 라벨은 자기 영역 아래로 내려가도 남는다`() {
+        // 포스터 체인 4줄(80px) 아래로 QuickLabelIcon(영역 높이 30) — 포스터 영역 안이면 표시
+        val poster = LabelTarget("VodBasicBandItem\nVerticalThumbnail\nThumbnail\nThumbnailLabel", LabelRect(0f, 0f, 300f, 450f), depth = 0)
+        val quick = LabelTarget("QuickLabelIcon", LabelRect(4f, 4f, 60f, 34f), depth = 5)
+
+        val placed = placeLabels(listOf(quick, poster)) { name -> LabelSize(100f, 20f * name.split("\n").size) }
+
+        assertEquals(listOf("VodBasicBandItem\nVerticalThumbnail\nThumbnail\nThumbnailLabel", "QuickLabelIcon"), placed.map { it.name })
+        assertEquals(80f, placed[1].rect.top)
     }
 
     // ── minus (위에 그려진 것에 가려진 부분 빼기) ─────────────────

@@ -28,6 +28,9 @@ private const val STEP_BUDGET_NANOS = 2_000_000L
 /** Draws in a row without any label moving before positions are checked less often. */
 private const val STILL_DRAWS_BEFORE_SPARSE = 8
 
+/** Separates the names of a vertically stacked chain label. */
+private const val LINE_BREAK = "\n"
+
 /** Rounding slack when telling whether a composable is cut on a side (px). */
 private const val CUT_SLACK_PX = 0.5f
 
@@ -268,11 +271,12 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
             try {
                 cycleTargets = traceSection("Nametag:select") {
                     val lineHeight = painter.measure(CHAIN_SEPARATOR).height
-                    selectLabelTargets(groups).flatMap { target ->
+                    selectLabelTargets(groups).map { target ->
                         val bounds = target.bounds.offset(cycleDx, cycleDy)
                         // 세로로 쌓기 → 한 줄로 잇기 → 바깥 이름 하나 — 옆 아이템 라벨을 밀거나 화면을 덮지 않도록
                         val lines = layoutChain(target.levels, bounds.width, bounds.height, lineHeight) { painter.measure(it).width }
-                        lines.mapIndexed { i, line -> target.copy(name = line, bounds = bounds, depth = target.depth + i) }
+                        // 세로로 쌓은 이름도 라벨 하나 — 자식 라벨(QuickLabelIcon 등)이 쌓기 칸을 뺏기지 않도록
+                        target.copy(name = lines.joinToString(LINE_BREAK), bounds = bounds)
                     }
                 }
             } catch (t: Throwable) {
@@ -517,9 +521,14 @@ private class LabelPainter(metrics: DisplayMetrics) {
     private val sizes = HashMap<String, LabelSize>()
 
     // 스캔마다 같은 이름을 다시 재지 않도록 캐시
+    /** A name with [LINE_BREAK] is a vertical stack: as wide as its widest line, one chip height per line. */
     fun measure(name: String): LabelSize = sizes.getOrPut(name) {
-        LabelSize(textPaint.measureText(name) + paddingH * 2, textHeight + paddingV * 2)
+        if (LINE_BREAK !in name) return@getOrPut LabelSize(textPaint.measureText(name) + paddingH * 2, chipHeight)
+        val lines = name.split(LINE_BREAK)
+        LabelSize(lines.maxOf { textPaint.measureText(it) } + paddingH * 2, chipHeight * lines.size)
     }
+
+    private val chipHeight = textHeight + paddingV * 2
 
     /**
      * Draws [name] at the top-left of the full bounds, [offsetY] down (stacked).
@@ -553,6 +562,13 @@ private class LabelPainter(metrics: DisplayMetrics) {
     }
 
     private fun drawChip(canvas: Canvas, name: String, left: Float, top: Float, size: LabelSize) {
+        if (LINE_BREAK in name) {
+            // 세로 쌓기 — 이름마다 자기 색의 칩을 한 줄씩
+            name.split(LINE_BREAK).forEachIndexed { i, line ->
+                drawChip(canvas, line, left, top + chipHeight * i, measure(line))
+            }
+            return
+        }
         rectF.set(left, top, left + size.width, top + size.height)
         fillPaint.color = overlayColors[name.hashCode().absoluteValue.mod(overlayColors.size)]
         canvas.drawRoundRect(rectF, corner, corner, fillPaint)

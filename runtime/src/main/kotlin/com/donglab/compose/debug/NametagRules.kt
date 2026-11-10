@@ -17,6 +17,9 @@ internal data class LabelRect(val left: Float, val top: Float, val right: Float,
     val height: Float get() = bottom - top
     val area: Float get() = width * height
 
+    fun contains(other: LabelRect): Boolean =
+        left <= other.left && top <= other.top && other.right <= right && other.bottom <= bottom
+
     fun intersects(other: LabelRect): Boolean =
         left < other.right && other.left < right && top < other.bottom && other.top < bottom
 
@@ -279,6 +282,7 @@ internal fun placeLabels(
 ): List<PlacedLabel> {
     val sorted = targets.sortedWith(compareBy<LabelTarget> { it.depth }.thenByDescending { it.bounds.area })
     val placedRects = FloatArray(sorted.size * 4)
+    val placedTargets = arrayOfNulls<LabelTarget>(sorted.size)
     var placedCount = 0
     val placed = ArrayList<PlacedLabel>(sorted.size)
 
@@ -287,14 +291,33 @@ internal fun placeLabels(
         val bounds = target.bounds
         val left = labelLeft(bounds)
         var top = labelTop(bounds, 0f)
+        // 아래로 밀 수 있는 끝 — 기본은 자기 영역, 감싸는 조상 라벨에만 밀렸으면 그 조상 영역까지
+        var limit = bounds.bottom
         var fits = true
         var steps = 0
         while (true) {
-            val below = bottomOfCollisions(placedRects, placedCount, left, top, left + size.width, top + size.height)
+            var below = -1f
+            var byAncestorsOnly = true
+            var ancestorBottom = Float.MAX_VALUE
+            for (i in 0 until placedCount) {
+                val index = i * 4
+                if (left < placedRects[index + 2] && placedRects[index] < left + size.width &&
+                    top < placedRects[index + 3] && placedRects[index + 1] < top + size.height
+                ) {
+                    below = maxOf(below, placedRects[index + 3])
+                    val other = placedTargets[i]!!
+                    if (other.depth < target.depth && other.bounds.contains(bounds)) {
+                        ancestorBottom = minOf(ancestorBottom, other.bounds.bottom)
+                    } else {
+                        byAncestorsOnly = false
+                    }
+                }
+            }
             if (below < 0f) break
             // 막은 라벨 바로 아래로 — 영역 밖으로 나가거나 너무 깊게 쌓이면 생략
             top = below
-            if (++steps > MAX_STACK_STEPS || top >= bounds.bottom) {
+            if (byAncestorsOnly) limit = maxOf(limit, ancestorBottom)
+            if (++steps > MAX_STACK_STEPS || top >= limit) {
                 fits = false
                 break
             }
@@ -306,6 +329,7 @@ internal fun placeLabels(
         placedRects[index + 1] = top
         placedRects[index + 2] = left + size.width
         placedRects[index + 3] = top + size.height
+        placedTargets[placedCount] = target
         placedCount++
         placed += PlacedLabel(target.name, LabelRect(left, top, left + size.width, top + size.height), top - bounds.top, target.source)
     }
@@ -317,15 +341,3 @@ internal fun labelLeft(bounds: LabelRect): Float = bounds.left
 
 /** Top edge of a label stacked [offsetY] below the top of [bounds]. */
 internal fun labelTop(bounds: LabelRect, offsetY: Float): Float = bounds.top + offsetY
-
-/** Lowest bottom among placed rects overlapping the given one, -1 when nothing overlaps. */
-private fun bottomOfCollisions(rects: FloatArray, count: Int, left: Float, top: Float, right: Float, bottom: Float): Float {
-    var lowest = -1f
-    for (i in 0 until count) {
-        val index = i * 4
-        if (left < rects[index + 2] && rects[index] < right && top < rects[index + 3] && rects[index + 1] < bottom) {
-            lowest = maxOf(lowest, rects[index + 3])
-        }
-    }
-    return lowest
-}
