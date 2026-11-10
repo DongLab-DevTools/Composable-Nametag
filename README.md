@@ -33,7 +33,7 @@ See each Composable's name directly on screen, making layout debugging and code 
 
 - **Auto injection** — The Compiler Plugin injects labels at compile time without touching your existing code.
 - **Only what you see** — Labels follow the area each Composable actually drew. Composables that draw nothing (effects, themes) and views that are off screen or hidden are left out.
-- **No overlapping labels** — A wrapper chain covering the same area becomes one label with its names joined, repeated list items show one level inside, and labels are placed so they never overlap.
+- **No overlapping labels** — A wrapper chain covering the same area becomes one label with its names joined, and labels are placed so they never overlap.
 - **Layout untouched** — Labels are drawn on the ComposeView's overlay, not inside your layout, so spacing and placement never change.
 - **Debug only** — The compiler plugin and runtime are applied only to `debug` builds. Release builds contain zero library code — no IR injection, no runtime dependency.
 - **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all. In debug builds with the overlay turned off, the injected call reads one state and returns — no overlay or scan is created.
@@ -197,11 +197,10 @@ At runtime the slot table is read the same way Layout Inspector does to find the
 |------|---------|
 | Nothing drawn → skipped | Effects, themes, dialogs that are not shown |
 | Off screen or hidden view → skipped | Items scrolled away, kept-alive tabs |
-| Wrapper chain with the same area → one label, names joined outer to inner | `MovieItem › Poster › Thumbnail`; shortened to `MovieItem › … › Thumbnail` (or `MovieItem`) when wider than the item |
-| Inside a repeated list item → one level deep | `ShortcutItem › ShortcutIcon` shown, `IconImage` skipped |
+| Wrapper chain with the same area → one label, names outer to inner | One line `MovieItem › Poster › Thumbnail` when it fits; otherwise one name per line when the stack covers at most half the item; otherwise `MovieItem › … › Thumbnail`, or just `MovieItem` |
 | Covered by a view on top → skipped | A screen behind a Fragment page opened in an `AndroidView` |
 
-- **Placement** — Labels sit at the top-left of their area, parents first. When the spot is taken, a label stacks right below the one in the way, so nested names always read top to bottom (`MovieRow` › `MovieItem` › `PosterBadges`). A label that would start below its area is dropped.
+- **Placement** — Labels sit at the top-left of their area, parents first. When the spot is taken, a label stacks right below the one in the way, so nested names always read top to bottom (`MovieRow` › `MovieItem` › `PosterBadges`). A label wider than its item is right-aligned instead (a badge at a poster's right edge), and a label may be pushed down as far as the bottom of the item around it before it is dropped.
 - **Scrolling** — Labels are placed by the full layout of each composable, not by the part currently on screen, so they stay attached to their item and move with it in the same frame instead of jumping around. Items that newly scroll in get their label on the next update.
 - **Edges** — A label is never drawn sliced: when its item is cut at a screen or list edge and the label doesn't fit, it is skipped; a label wider than an uncut item at the screen edge is pulled back inside.
 - **Performance** — Updates run in ~2ms steps in the idle time between frames, so they do not delay frames while scrolling. On a still screen the update interval backs off up to 800ms, and labels that did not move are redrawn from a cache.
