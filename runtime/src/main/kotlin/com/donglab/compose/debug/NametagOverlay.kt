@@ -28,6 +28,9 @@ private const val STEP_BUDGET_NANOS = 2_000_000L
 /** Draws in a row without any label moving before positions are checked less often. */
 private const val STILL_DRAWS_BEFORE_SPARSE = 8
 
+/** Separates the names of a vertically stacked chain label. */
+private const val LINE_BREAK = "\n"
+
 /** Rounding slack when telling whether a composable is cut on a side (px). */
 private const val CUT_SLACK_PX = 0.5f
 
@@ -267,7 +270,14 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
             // 선택과 배치도 각각 한 단계씩
             try {
                 cycleTargets = traceSection("Nametag:select") {
-                    selectLabelTargets(groups).map { it.copy(bounds = it.bounds.offset(cycleDx, cycleDy)) }
+                    val lineHeight = painter.measure(CHAIN_SEPARATOR).height
+                    selectLabelTargets(groups).map { target ->
+                        val bounds = target.bounds.offset(cycleDx, cycleDy)
+                        // 세로로 쌓기 → 한 줄로 잇기 → 바깥 이름 하나 — 옆 아이템 라벨을 밀거나 화면을 덮지 않도록
+                        val lines = layoutChain(target.levels, bounds.width, bounds.height, lineHeight) { painter.measure(it).width }
+                        // 세로로 쌓은 이름도 라벨 하나 — 자식 라벨(QuickLabelIcon 등)이 쌓기 칸을 뺏기지 않도록
+                        target.copy(name = lines.joinToString(LINE_BREAK), bounds = bounds)
+                    }
                 }
             } catch (t: Throwable) {
                 cycleGroups = null
@@ -299,6 +309,50 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
         if (!changed) return@traceSection
         labels = placed
         show(placed)
+        logSelection(groups, targets, placed)
+    }
+
+    /**
+     * Why names are shown or left out — only with `adb shell setprop log.tag.ComposableNametag DEBUG`.
+     * Logged when the result changes, so a still screen logs once.
+     */
+    private fun logSelection(groups: List<NamedGroup>, targets: List<LabelTarget>, placed: List<PlacedLabel>) {
+        val enabled = try {
+            android.util.Log.isLoggable(TAG, android.util.Log.DEBUG)
+        } catch (_: Throwable) {
+            false
+        }
+        if (!enabled) return
+        try {
+            val visible = groups.count { it.bounds != null }
+            val inChains = targets.sumOf { it.levels.size }
+            // 이름이 아니라 라벨(Composable) 하나하나로 — 같은 이름이 다른 아이템에서 표시돼도 빠진 것을 놓치지 않게
+            val placedSources = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<NamedGroup, Boolean>())
+            placed.mapNotNullTo(placedSources) { it.source }
+            val noRoom = targets.filter { it.source != null && it.source !in placedSources }.map { target ->
+                val b = target.bounds
+                "${target.name.replace(LINE_BREAK, " / ")} @(${b.left.toInt()},${b.top.toInt()} ${b.width.toInt()}x${b.height.toInt()}) " +
+                    "host=${target.source?.host?.view?.javaClass?.simpleName}@${System.identityHashCode(target.source?.host?.view)}"
+            }
+            android.util.Log.d(
+                TAG,
+                "labels: visible=$visible → chains=${targets.size} (names in chains $inChains, " +
+                    "list depth / hidden skipped ${visible - inChains}) → placed=${placed.size}, no room=${noRoom.size}",
+            )
+            for (target in targets) {
+                if (target.levels.size > 1) android.util.Log.d(TAG, "  chain: ${target.levels.joinToString(CHAIN_SEPARATOR)} → ${target.name}")
+            }
+            for (name in noRoom) android.util.Log.d(TAG, "  no room: $name")
+            // 보이는데 어느 라벨에도 들어가지 않은 이름 — 리스트 깊이 제한으로 빠진 것
+            val inTargets = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<NamedGroup, Boolean>())
+            targets.forEach { inTargets.addAll(it.members) }
+            for (group in groups) {
+                val b = group.bounds ?: continue
+                if (group in inTargets) continue
+                android.util.Log.d(TAG, "  list depth: ${group.name} @(${b.left.toInt()},${b.top.toInt()} ${b.width.toInt()}x${b.height.toInt()}) parent=${group.parent?.name}")
+            }
+        } catch (_: Throwable) {
+        }
     }
 
     /** Hands each ComposeView its labels; views left without labels drop their painter. */
@@ -429,12 +483,32 @@ private class HostLabels(
         }
     }
 
+    private var lastSkipped: Set<String> = emptySet()
+
     private fun paint(canvas: Canvas, positions: List<Followed?>) {
+        var skipped: HashSet<String>? = null
         for (i in labels.indices) {
-            val at = positions.getOrNull(i) ?: continue
             val label = labels[i]
-            val area = label.source?.host?.localClip ?: continue
-            painter.draw(canvas, label.name, at, label.offsetY, label.source?.covers.orEmpty(), area)
+            val at = positions.getOrNull(i)
+            val area = label.source?.host?.localClip
+            val reason = when {
+                at == null -> "not visible"
+                area == null -> "no host"
+                else -> painter.draw(canvas, label.name, at, label.offsetX, label.offsetY, label.source?.covers.orEmpty(), area)
+            } ?: continue
+            (skipped ?: HashSet<String>().also { skipped = it }) += "${label.name.replace(LINE_BREAK, " / ")} ($reason)"
+        }
+        logSkippedOnDraw(skipped.orEmpty())
+    }
+
+    // 그릴 때 빠진 라벨 — 디버그 로그가 켜져 있고 목록이 바뀔 때만
+    private fun logSkippedOnDraw(skipped: Set<String>) {
+        if (skipped == lastSkipped) return
+        lastSkipped = skipped
+        try {
+            if (!android.util.Log.isLoggable(TAG, android.util.Log.DEBUG)) return
+            for (name in skipped) android.util.Log.d(TAG, "  draw skip: $name")
+        } catch (_: Throwable) {
         }
     }
 
@@ -481,9 +555,14 @@ private class LabelPainter(metrics: DisplayMetrics) {
     private val sizes = HashMap<String, LabelSize>()
 
     // 스캔마다 같은 이름을 다시 재지 않도록 캐시
+    /** A name with [LINE_BREAK] is a vertical stack: as wide as its widest line, one chip height per line. */
     fun measure(name: String): LabelSize = sizes.getOrPut(name) {
-        LabelSize(textPaint.measureText(name) + paddingH * 2, textHeight + paddingV * 2)
+        if (LINE_BREAK !in name) return@getOrPut LabelSize(textPaint.measureText(name) + paddingH * 2, chipHeight)
+        val lines = name.split(LINE_BREAK)
+        LabelSize(lines.maxOf { textPaint.measureText(it) } + paddingH * 2, chipHeight * lines.size)
     }
+
+    private val chipHeight = textHeight + paddingV * 2
 
     /**
      * Draws [name] at the top-left of the full bounds, [offsetY] down (stacked).
@@ -495,28 +574,36 @@ private class LabelPainter(metrics: DisplayMetrics) {
      *   pulled back inside [area], the visible part of the host view
      * A label over a part [covers] hide is skipped too.
      */
-    fun draw(canvas: Canvas, name: String, at: Followed, offsetY: Float, covers: List<LabelRect>, area: LabelRect) {
+    fun draw(canvas: Canvas, name: String, at: Followed, offsetX: Float, offsetY: Float, covers: List<LabelRect>, area: LabelRect): String? {
         val size = measure(name)
         val full = at.full
         val visible = at.visible
-        var left = labelLeft(full)
+        var left = full.left + offsetX
         var top = labelTop(full, offsetY)
         // 잘리지 않은 쪽으로 화면 밖에 넘치면 안쪽으로 당김
         if (left + size.width > area.right && visible.right >= full.right - CUT_SLACK_PX) left = maxOf(area.left, area.right - size.width)
         if (top + size.height > area.bottom && visible.bottom >= full.bottom - CUT_SLACK_PX) top = maxOf(area.top, area.bottom - size.height)
         val right = left + size.width
         val bottom = top + size.height
-        if (visible.left > full.left + CUT_SLACK_PX && left < visible.left) return
-        if (visible.top > full.top + CUT_SLACK_PX && top < visible.top) return
-        if (visible.right < full.right - CUT_SLACK_PX && right > visible.right) return
-        if (visible.bottom < full.bottom - CUT_SLACK_PX && bottom > visible.bottom) return
+        if (visible.left > full.left + CUT_SLACK_PX && left < visible.left) return "cut left"
+        if (visible.top > full.top + CUT_SLACK_PX && top < visible.top) return "cut top"
+        if (visible.right < full.right - CUT_SLACK_PX && right > visible.right) return "cut right"
+        if (visible.bottom < full.bottom - CUT_SLACK_PX && bottom > visible.bottom) return "cut bottom"
         for (cover in covers) {
-            if (left < cover.right && cover.left < right && top < cover.bottom && cover.top < bottom) return
+            if (left < cover.right && cover.left < right && top < cover.bottom && cover.top < bottom) return "covered"
         }
         drawChip(canvas, name, left, top, size)
+        return null
     }
 
     private fun drawChip(canvas: Canvas, name: String, left: Float, top: Float, size: LabelSize) {
+        if (LINE_BREAK in name) {
+            // 세로 쌓기 — 이름마다 자기 색의 칩을 한 줄씩
+            name.split(LINE_BREAK).forEachIndexed { i, line ->
+                drawChip(canvas, line, left, top + chipHeight * i, measure(line))
+            }
+            return
+        }
         rectF.set(left, top, left + size.width, top + size.height)
         fillPaint.color = overlayColors[name.hashCode().absoluteValue.mod(overlayColors.size)]
         canvas.drawRoundRect(rectF, corner, corner, fillPaint)

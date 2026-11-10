@@ -10,7 +10,7 @@ class NametagRulesTest {
     // ── selectLabelTargets ────────────────────────────────
 
     @Test
-    fun `같은 영역 체인은 가장 바깥쪽 이름만 남긴다`() {
+    fun `같은 영역 체인은 바깥부터 이름을 이어 붙여 라벨 하나로 만든다`() {
         val movieItem = NamedGroup("MovieItem", parent = null, bounds = item)
         val poster = NamedGroup("Poster", parent = movieItem, bounds = item)
         val theme = NamedGroup("AppTheme", parent = poster, bounds = item)
@@ -18,7 +18,8 @@ class NametagRulesTest {
 
         val targets = selectLabelTargets(listOf(movieItem, poster, theme, thumbnail))
 
-        assertEquals(listOf("MovieItem"), targets.map { it.name })
+        assertEquals(listOf("MovieItem › Poster › AppTheme › Thumbnail"), targets.map { it.name })
+        assertEquals(movieItem, targets.single().source)
     }
 
     @Test
@@ -48,7 +49,19 @@ class NametagRulesTest {
 
         val targets = selectLabelTargets(listOf(outer, inner))
 
-        assertEquals(listOf("Outer"), targets.map { it.name })
+        assertEquals(listOf("Outer › Inner"), targets.map { it.name })
+    }
+
+    @Test
+    fun `기본값은 리스트 아이템 안 깊이 제한이 없다`() {
+        // 포스터 하나뿐인 행처럼 반복으로 인식되지 않는 경우도 안쪽 이름이 모두 남음
+        val band = NamedGroup("Band", parent = null, bounds = LabelRect(0f, 0f, 1000f, 500f), isListItem = true)
+        val header = NamedGroup("BandHeader", parent = band, bounds = LabelRect(0f, 0f, 1000f, 60f))
+        val more = NamedGroup("BandMoreButton", parent = header, bounds = LabelRect(900f, 0f, 1000f, 60f))
+
+        val targets = selectLabelTargets(listOf(band, header, more))
+
+        assertEquals(listOf("Band", "BandHeader", "BandMoreButton"), targets.map { it.name })
     }
 
     @Test
@@ -57,7 +70,7 @@ class NametagRulesTest {
         val title = NamedGroup("ShortcutTitle", parent = shortcutItem, bounds = LabelRect(0f, 70f, 64f, 110f))
         val line = NamedGroup("TitleLine", parent = title, bounds = LabelRect(0f, 70f, 64f, 90f))
 
-        val targets = selectLabelTargets(listOf(shortcutItem, title, line))
+        val targets = selectLabelTargets(listOf(shortcutItem, title, line), maxDepthInListItem = 1)
 
         assertEquals(listOf("ShortcutItem", "ShortcutTitle"), targets.map { it.name })
     }
@@ -69,9 +82,9 @@ class NametagRulesTest {
         val label = NamedGroup("PosterBadges", parent = thumbnail, bounds = LabelRect(0f, 0f, 300f, 40f))
         val badge = NamedGroup("PurchaseBadge", parent = label, bounds = LabelRect(0f, 0f, 40f, 20f))
 
-        val targets = selectLabelTargets(listOf(movieItem, thumbnail, label, badge))
+        val targets = selectLabelTargets(listOf(movieItem, thumbnail, label, badge), maxDepthInListItem = 1)
 
-        assertEquals(listOf("MovieItem", "PosterBadges"), targets.map { it.name })
+        assertEquals(listOf("MovieItem › Thumbnail", "PosterBadges"), targets.map { it.name })
     }
 
     @Test
@@ -81,7 +94,7 @@ class NametagRulesTest {
         val shortcutItem = NamedGroup("ShortcutItem", parent = row, bounds = LabelRect(0f, 60f, 64f, 170f), isListItem = true)
         val icon = NamedGroup("ShortcutIcon", parent = shortcutItem, bounds = LabelRect(0f, 60f, 64f, 124f))
 
-        val targets = selectLabelTargets(listOf(section, row, shortcutItem, icon))
+        val targets = selectLabelTargets(listOf(section, row, shortcutItem, icon), maxDepthInListItem = 1)
 
         assertEquals(listOf("Section", "ShortcutRow", "ShortcutItem", "ShortcutIcon"), targets.map { it.name })
     }
@@ -96,6 +109,129 @@ class NametagRulesTest {
         val targets = selectLabelTargets(listOf(screen, header, title, icon))
 
         assertEquals(listOf("Screen", "Header", "HeaderTitle", "HeaderIcon"), targets.map { it.name })
+    }
+
+    @Test
+    fun `중간 래퍼가 숨겨지면 체인이 끊겨 두 라벨이 된다`() {
+        val outer = NamedGroup("Outer", parent = null, bounds = item)
+        val hidden = NamedGroup("HiddenWrapper", parent = outer, bounds = null)
+        val inner = NamedGroup("Inner", parent = hidden, bounds = item)
+
+        val targets = selectLabelTargets(listOf(outer, hidden, inner))
+
+        assertEquals(listOf("Outer", "Inner"), targets.map { it.name })
+    }
+
+    @Test
+    fun `같은 깊이 형제는 세로 막대로 잇는다`() {
+        // Box 안에 같은 영역으로 겹친 두 자식
+        val box = NamedGroup("Box", parent = null, bounds = item)
+        val image = NamedGroup("Image", parent = box, bounds = item)
+        val scrim = NamedGroup("Scrim", parent = box, bounds = item)
+
+        val targets = selectLabelTargets(listOf(box, image, scrim))
+
+        assertEquals(listOf("Box › Image | Scrim"), targets.map { it.name })
+    }
+
+    @Test
+    fun `체인 안에 리스트 아이템이 있으면 머리를 리스트 아이템으로 센다`() {
+        // ItemWrapper 와 MovieItem(리스트 아이템)이 같은 영역 — 바깥 리스트 깊이로 세면 2단계라 빠짐
+        val section = NamedGroup("Section", parent = null, bounds = LabelRect(0f, 0f, 1000f, 600f), isListItem = true)
+        val row = NamedGroup("MovieRow", parent = section, bounds = LabelRect(0f, 50f, 1000f, 600f))
+        val wrapper = NamedGroup("ItemWrapper", parent = row, bounds = LabelRect(0f, 60f, 300f, 510f))
+        val movieItem = NamedGroup("MovieItem", parent = wrapper, bounds = LabelRect(0f, 60f, 300f, 510f), isListItem = true)
+
+        val targets = selectLabelTargets(listOf(section, row, wrapper, movieItem), maxDepthInListItem = 1)
+
+        assertEquals(listOf("Section", "MovieRow", "ItemWrapper › MovieItem"), targets.map { it.name })
+    }
+
+    @Test
+    fun `리스트 아이템 안 페이저의 페이지는 멈춰 있어도 리스트 아이템으로 센다`() {
+        // 롤링 배너 — 밴드(리스트 아이템) › 페이저 › 페이지. 페이지가 페이저를 꽉 채워도 사라지면 안 됨
+        val band = NamedGroup("BannerBand", parent = null, bounds = LabelRect(0f, 0f, 1000f, 500f), isListItem = true)
+        val pager = NamedGroup("RollingBanner", parent = band, bounds = LabelRect(0f, 50f, 1000f, 500f))
+        val page = NamedGroup("RollingBannerPage", parent = pager, bounds = LabelRect(0f, 50f, 1000f, 500f), isPage = true)
+        val image = NamedGroup("RollingBannerImage", parent = page, bounds = LabelRect(0f, 50f, 1000f, 400f))
+
+        val targets = selectLabelTargets(listOf(band, pager, page, image), maxDepthInListItem = 1)
+
+        assertEquals(listOf("BannerBand", "RollingBanner › RollingBannerPage", "RollingBannerImage"), targets.map { it.name })
+    }
+
+    @Test
+    fun `리스트 밖 페이저의 페이지는 리스트 아이템으로 세지 않는다`() {
+        // 홈 탭 페이저 — 화면을 채운 페이지 안의 내용을 리스트 깊이로 제한하지 않음
+        val pager = NamedGroup("HomePager", parent = null, bounds = LabelRect(0f, 0f, 1000f, 2000f))
+        val page = NamedGroup("TabPage", parent = pager, bounds = LabelRect(0f, 0f, 1000f, 2000f), isPage = true)
+        val header = NamedGroup("Header", parent = page, bounds = LabelRect(0f, 0f, 1000f, 100f))
+        val title = NamedGroup("HeaderTitle", parent = header, bounds = LabelRect(0f, 0f, 500f, 100f))
+
+        val targets = selectLabelTargets(listOf(pager, page, header, title), maxDepthInListItem = 1)
+
+        assertEquals(listOf("HomePager › TabPage", "Header", "HeaderTitle"), targets.map { it.name })
+    }
+
+    // ── fitChainName ──────────────────────────────────────
+
+    private val band = listOf("MultiBandContentInternal", "VodBasicBand", "TvingRowBand", "BandContainer")
+
+    // 한 글자 10px
+    private fun fit(levels: List<String>, maxWidth: Float) = fitChainName(levels, maxWidth) { it.length * 10f }
+
+    @Test
+    fun `한도 안이면 체인 이름을 그대로 쓴다`() {
+        assertEquals("MultiBandContentInternal › VodBasicBand › TvingRowBand › BandContainer", fit(band, 1000f))
+    }
+
+    @Test
+    fun `한도를 넘으면 바깥쪽 가운데 단계부터 줄이고 양 끝은 남긴다`() {
+        assertEquals("MultiBandContentInternal › … › TvingRowBand › BandContainer", fit(band, 600f))
+        assertEquals("MultiBandContentInternal › … › BandContainer", fit(band, 450f))
+    }
+
+    @Test
+    fun `양 끝만으로도 넘치면 가장 바깥 이름 하나만 쓴다`() {
+        // 포스터처럼 좁은 영역 — 옆 아이템 라벨을 밀어내지 않도록 1.0.2 처럼 바깥 이름만
+        assertEquals("MultiBandContentInternal", fit(band, 300f))
+        assertEquals("MultiBandContentInternal", fit(listOf("MultiBandContentInternal"), 100f))
+    }
+
+    // ── layoutChain (세로 → 가로 → 바깥 이름) ─────────────────────────
+
+    // 한 글자 10px, 한 줄 20px
+    private fun layout(levels: List<String>, width: Float, height: Float) =
+        layoutChain(levels, width, height, lineHeight = 20f) { it.length * 10f }
+
+    private val poster = listOf("VodBasicBandItem", "VerticalThumbnail", "TdsTheme", "Thumbnail", "ThumbnailLabel")
+
+    @Test
+    fun `한 줄에 다 들어가면 세로로 쌓을 수 있어도 가로로 잇는다`() {
+        // 넓은 밴드 — 세로로도 들어가지만 가로가 먼저
+        assertEquals(listOf(poster.joinToString(" › ")), layout(poster, width = 900f, height = 1000f))
+    }
+
+    @Test
+    fun `한 줄에 안 들어가고 세로로 쌓아도 영역의 절반 이하면 한 줄씩 쌓는다`() {
+        // 5줄 = 100px ≤ 높이 200 의 1/2 · 가장 긴 이름 170px ≤ 폭 230
+        assertEquals(poster, layout(poster, width = 230f, height = 200f))
+    }
+
+    @Test
+    fun `세로로 쌓으면 절반을 넘게 가리면 가운데를 줄여 한 줄로 잇는다`() {
+        // 5줄 100px > 높이 150 의 1/2 · 가운데를 줄이면 폭 450 안에 들어감
+        assertEquals(listOf("VodBasicBandItem › … › ThumbnailLabel"), layout(poster, width = 400f, height = 150f))
+    }
+
+    @Test
+    fun `세로도 가로도 안 되면 바깥 이름 하나만 쓴다`() {
+        assertEquals(listOf("VodBasicBandItem"), layout(poster, width = 230f, height = 150f))
+    }
+
+    @Test
+    fun `이름 하나짜리 체인은 그대로 쓴다`() {
+        assertEquals(listOf("Poster"), layout(listOf("Poster"), width = 10f, height = 10f))
     }
 
     // ── placeLabels ───────────────────────────────────────
@@ -155,8 +291,9 @@ class NametagRulesTest {
 
     @Test
     fun `쌓을 자리가 영역을 벗어나면 생략한다`() {
+        // 서로 감싸지 않는 두 라벨 (같은 깊이)
         val a = LabelTarget("A", LabelRect(0f, 0f, 100f, 20f))
-        val b = LabelTarget("B", LabelRect(0f, 0f, 100f, 20f), depth = 1)
+        val b = LabelTarget("B", LabelRect(0f, 0f, 90f, 20f))
 
         val placed = place(a, b)
 
@@ -193,6 +330,52 @@ class NametagRulesTest {
 
         assertEquals(20f, stacked.offsetY)
         assertEquals(moved.top + 20f, labelTop(moved, stacked.offsetY))
+    }
+
+    @Test
+    fun `조상의 세로 라벨에 밀린 자식 라벨은 자기 영역 아래로 내려가도 남는다`() {
+        // 포스터 체인 4줄(80px) 아래로 QuickLabelIcon(영역 높이 30) — 포스터 영역 안이면 표시
+        val poster = LabelTarget("VodBasicBandItem\nVerticalThumbnail\nThumbnail\nThumbnailLabel", LabelRect(0f, 0f, 300f, 450f), depth = 0)
+        val quick = LabelTarget("QuickLabelIcon", LabelRect(4f, 4f, 60f, 34f), depth = 5)
+
+        val placed = placeLabels(listOf(quick, poster)) { name -> LabelSize(100f, 20f * name.split("\n").size) }
+
+        assertEquals(listOf("VodBasicBandItem\nVerticalThumbnail\nThumbnail\nThumbnailLabel", "QuickLabelIcon"), placed.map { it.name })
+        assertEquals(80f, placed[1].rect.top)
+    }
+
+    @Test
+    fun `왼쪽 정렬로 옆 아이템 라벨에 막히면 오른쪽 정렬로 다시 놓는다`() {
+        // 포스터 오른쪽 끝의 19 배지 — 라벨이 옆 포스터 라벨 묶음과 겹치면 포스터 안쪽(오른쪽 정렬)으로
+        val stack = "VodBasicBandItem\nVerticalThumbnail\nThumbnail\nThumbnailLabel"
+        val posterA = LabelTarget(stack, LabelRect(0f, 0f, 230f, 340f), depth = 0)
+        val posterB = LabelTarget(stack, LabelRect(240f, 0f, 470f, 340f), depth = 0)
+        val badge = LabelTarget("NineteenLabelIcon", LabelRect(200f, 4f, 226f, 30f), depth = 5)
+        val measure = { name: String ->
+            LabelSize(if ("\n" in name) 170f else name.length * 10f, 20f * name.split("\n").size)
+        }
+
+        val placed = placeLabels(listOf(badge, posterB, posterA), measure).single { it.name == "NineteenLabelIcon" }
+
+        // 오른쪽 끝을 배지 오른쪽(226)에 맞추고, 포스터 A 라벨 묶음(80px) 아래
+        assertEquals(LabelRect(56f, 80f, 226f, 100f), placed.rect)
+        assertEquals(56f - 200f, placed.offsetX)
+    }
+
+    @Test
+    fun `형제 라벨에 밀린 작은 컴포넌트 라벨도 감싸는 아이템 안이면 남는다`() {
+        // 포스터 안 배지 라벨(오른쪽 정렬)에 플레이스홀더 라벨이 밀림 — 플레이스홀더 영역은 작지만 포스터 안이면 표시
+        val poster = LabelTarget("Poster", LabelRect(0f, 0f, 230f, 340f), depth = 0)
+        val badge = LabelTarget("DubbingLabelIcon", LabelRect(200f, 4f, 226f, 30f), depth = 1)
+        // 높이 12 — 포스터 라벨 · 배지 라벨에 한 번씩 밀리면 자기 영역(10~22)을 벗어남
+        val placeholder = LabelTarget("ThumbnailPlaceHolder", LabelRect(20f, 10f, 210f, 22f), depth = 2)
+        val measure = { name: String -> LabelSize(name.length * 10f, 20f) }
+
+        val placed = placeLabels(listOf(placeholder, badge, poster), measure).associateBy { it.name }
+
+        // 배지 라벨은 포스터 밖으로 넘치지 않게 오른쪽 정렬
+        assertEquals(LabelRect(66f, 4f, 226f, 24f), placed.getValue("DubbingLabelIcon").rect)
+        assertEquals(LabelRect(20f, 24f, 220f, 44f), placed.getValue("ThumbnailPlaceHolder").rect)
     }
 
     // ── minus (위에 그려진 것에 가려진 부분 빼기) ─────────────────

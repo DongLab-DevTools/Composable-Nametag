@@ -288,6 +288,7 @@ internal class NametagTree {
             val view = hosts[data]
             for ((group, firstNode) in scan.roots) {
                 group.isListItem = false
+                group.isPage = false
                 val hostNode = hostOf(firstNode.parentInfo) ?: continue
                 group.parent = nodeOwners[hostNode]
                 itemsByHostNode.getOrPut(hostNode) { ArrayList() } += group
@@ -305,7 +306,9 @@ internal class NametagTree {
         val hostBounds = view?.let { host -> listOf(hostNode).boundsIn(host)?.full?.offset(host.originX, host.originY) }
         for (item in items) {
             val bounds = item.bounds ?: continue
-            item.isListItem = hostBounds == null || !bounds.isCloseTo(hostBounds, SAME_BOUNDS_TOLERANCE_PX)
+            val fillsHost = hostBounds != null && bounds.isCloseTo(hostBounds, SAME_BOUNDS_TOLERANCE_PX)
+            item.isListItem = !fillsHost
+            item.isPage = fillsHost
         }
     }
 
