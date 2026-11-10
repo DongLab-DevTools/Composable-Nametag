@@ -332,6 +332,40 @@ class NametagRulesTest {
         assertEquals(80f, placed[1].rect.top)
     }
 
+    @Test
+    fun `왼쪽 정렬로 옆 아이템 라벨에 막히면 오른쪽 정렬로 다시 놓는다`() {
+        // 포스터 오른쪽 끝의 19 배지 — 라벨이 옆 포스터 라벨 묶음과 겹치면 포스터 안쪽(오른쪽 정렬)으로
+        val stack = "VodBasicBandItem\nVerticalThumbnail\nThumbnail\nThumbnailLabel"
+        val posterA = LabelTarget(stack, LabelRect(0f, 0f, 230f, 340f), depth = 0)
+        val posterB = LabelTarget(stack, LabelRect(240f, 0f, 470f, 340f), depth = 0)
+        val badge = LabelTarget("NineteenLabelIcon", LabelRect(200f, 4f, 226f, 30f), depth = 5)
+        val measure = { name: String ->
+            LabelSize(if ("\n" in name) 170f else name.length * 10f, 20f * name.split("\n").size)
+        }
+
+        val placed = placeLabels(listOf(badge, posterB, posterA), measure).single { it.name == "NineteenLabelIcon" }
+
+        // 오른쪽 끝을 배지 오른쪽(226)에 맞추고, 포스터 A 라벨 묶음(80px) 아래
+        assertEquals(LabelRect(56f, 80f, 226f, 100f), placed.rect)
+        assertEquals(56f - 200f, placed.offsetX)
+    }
+
+    @Test
+    fun `형제 라벨에 밀린 작은 컴포넌트 라벨도 감싸는 아이템 안이면 남는다`() {
+        // 포스터 안 배지 라벨(오른쪽 정렬)에 플레이스홀더 라벨이 밀림 — 플레이스홀더 영역은 작지만 포스터 안이면 표시
+        val poster = LabelTarget("Poster", LabelRect(0f, 0f, 230f, 340f), depth = 0)
+        val badge = LabelTarget("DubbingLabelIcon", LabelRect(200f, 4f, 226f, 30f), depth = 1)
+        // 높이 12 — 포스터 라벨 · 배지 라벨에 한 번씩 밀리면 자기 영역(10~22)을 벗어남
+        val placeholder = LabelTarget("ThumbnailPlaceHolder", LabelRect(20f, 10f, 210f, 22f), depth = 2)
+        val measure = { name: String -> LabelSize(name.length * 10f, 20f) }
+
+        val placed = placeLabels(listOf(placeholder, badge, poster), measure).associateBy { it.name }
+
+        // 배지 라벨은 포스터 밖으로 넘치지 않게 오른쪽 정렬
+        assertEquals(LabelRect(66f, 4f, 226f, 24f), placed.getValue("DubbingLabelIcon").rect)
+        assertEquals(LabelRect(20f, 24f, 220f, 44f), placed.getValue("ThumbnailPlaceHolder").rect)
+    }
+
     // ── minus (위에 그려진 것에 가려진 부분 빼기) ─────────────────
 
     @Test

@@ -326,8 +326,14 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
         try {
             val visible = groups.count { it.bounds != null }
             val inChains = targets.sumOf { it.levels.size }
-            val placedNames = placed.mapTo(HashSet()) { it.name }
-            val noRoom = targets.filter { it.name !in placedNames }.map { it.name }
+            // 이름이 아니라 라벨(Composable) 하나하나로 — 같은 이름이 다른 아이템에서 표시돼도 빠진 것을 놓치지 않게
+            val placedSources = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<NamedGroup, Boolean>())
+            placed.mapNotNullTo(placedSources) { it.source }
+            val noRoom = targets.filter { it.source != null && it.source !in placedSources }.map { target ->
+                val b = target.bounds
+                "${target.name.replace(LINE_BREAK, " / ")} @(${b.left.toInt()},${b.top.toInt()} ${b.width.toInt()}x${b.height.toInt()}) " +
+                    "host=${target.source?.host?.view?.javaClass?.simpleName}@${System.identityHashCode(target.source?.host?.view)}"
+            }
             android.util.Log.d(
                 TAG,
                 "labels: visible=$visible → chains=${targets.size} (names in chains $inChains, " +
@@ -474,7 +480,7 @@ private class HostLabels(
             val at = positions.getOrNull(i) ?: continue
             val label = labels[i]
             val area = label.source?.host?.localClip ?: continue
-            painter.draw(canvas, label.name, at, label.offsetY, label.source?.covers.orEmpty(), area)
+            painter.draw(canvas, label.name, at, label.offsetX, label.offsetY, label.source?.covers.orEmpty(), area)
         }
     }
 
@@ -540,11 +546,11 @@ private class LabelPainter(metrics: DisplayMetrics) {
      *   pulled back inside [area], the visible part of the host view
      * A label over a part [covers] hide is skipped too.
      */
-    fun draw(canvas: Canvas, name: String, at: Followed, offsetY: Float, covers: List<LabelRect>, area: LabelRect) {
+    fun draw(canvas: Canvas, name: String, at: Followed, offsetX: Float, offsetY: Float, covers: List<LabelRect>, area: LabelRect) {
         val size = measure(name)
         val full = at.full
         val visible = at.visible
-        var left = labelLeft(full)
+        var left = full.left + offsetX
         var top = labelTop(full, offsetY)
         // 잘리지 않은 쪽으로 화면 밖에 넘치면 안쪽으로 당김
         if (left + size.width > area.right && visible.right >= full.right - CUT_SLACK_PX) left = maxOf(area.left, area.right - size.width)

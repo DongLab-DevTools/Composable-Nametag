@@ -113,6 +113,7 @@ internal data class LabelSize(val width: Float, val height: Float)
 
 /**
  * @property offsetY how far below the top of its bounds the label sits (stacked under other labels)
+ * @property offsetX where the label starts from the left of its bounds (negative when right-aligned)
  * @property source the composable, followed between scans
  */
 internal data class PlacedLabel(
@@ -120,6 +121,7 @@ internal data class PlacedLabel(
     val rect: LabelRect,
     val offsetY: Float = 0f,
     val source: NamedGroup? = null,
+    val offsetX: Float = 0f,
 )
 
 /**
@@ -289,55 +291,78 @@ internal fun placeLabels(
     for (target in sorted) {
         val size = measure(target.name)
         val bounds = target.bounds
-        val left = labelLeft(bounds)
-        var top = labelTop(bounds, 0f)
-        // 아래로 밀 수 있는 끝 — 기본은 자기 영역, 감싸는 조상 라벨에만 밀렸으면 그 조상 영역까지
-        var limit = bounds.bottom
-        var fits = true
-        var steps = 0
-        while (true) {
-            var below = -1f
-            var byAncestorsOnly = true
-            var ancestorBottom = Float.MAX_VALUE
-            for (i in 0 until placedCount) {
-                val index = i * 4
-                if (left < placedRects[index + 2] && placedRects[index] < left + size.width &&
-                    top < placedRects[index + 3] && placedRects[index + 1] < top + size.height
-                ) {
-                    below = maxOf(below, placedRects[index + 3])
-                    val other = placedTargets[i]!!
-                    if (other.depth < target.depth && other.bounds.contains(bounds)) {
-                        ancestorBottom = minOf(ancestorBottom, other.bounds.bottom)
-                    } else {
-                        byAncestorsOnly = false
-                    }
-                }
-            }
-            if (below < 0f) break
-            // 막은 라벨 바로 아래로 — 영역 밖으로 나가거나 너무 깊게 쌓이면 생략
-            top = below
-            if (byAncestorsOnly) limit = maxOf(limit, ancestorBottom)
-            if (++steps > MAX_STACK_STEPS || top >= limit) {
-                fits = false
-                break
-            }
+        // 왼쪽 정렬 → 오른쪽 정렬 — 아이템 오른쪽 끝의 작은 컴포넌트(배지)는 왼쪽 정렬이면 라벨이 옆 아이템으로 넘침.
+        // 감싸는 아이템 안에 가로로 들어가는 자리를 먼저 쓰고, 둘 다 넘치면 넘치는 자리라도 씀
+        val container = nearestContainer(target, placedTargets, placedCount)
+        val anchors = if (size.width > bounds.width) floatArrayOf(bounds.left, bounds.right - size.width) else floatArrayOf(bounds.left)
+        val inside = anchors.filter { container == null || (it >= container.left && it + size.width <= container.right) }
+        for (left in inside + anchors.filter { it !in inside }) {
+            val top = stackedTop(target, left, size, container, placedRects, placedCount) ?: continue
+            val index = placedCount * 4
+            placedRects[index] = left
+            placedRects[index + 1] = top
+            placedRects[index + 2] = left + size.width
+            placedRects[index + 3] = top + size.height
+            placedTargets[placedCount] = target
+            placedCount++
+            placed += PlacedLabel(
+                target.name,
+                LabelRect(left, top, left + size.width, top + size.height),
+                top - bounds.top,
+                target.source,
+                left - bounds.left,
+            )
+            break
         }
-        if (!fits) continue
-
-        val index = placedCount * 4
-        placedRects[index] = left
-        placedRects[index + 1] = top
-        placedRects[index + 2] = left + size.width
-        placedRects[index + 3] = top + size.height
-        placedTargets[placedCount] = target
-        placedCount++
-        placed += PlacedLabel(target.name, LabelRect(left, top, left + size.width, top + size.height), top - bounds.top, target.source)
     }
     return placed
 }
 
-/** Left edge of a label at the left of [bounds]. Not pulled into the view, so it moves with its composable. */
-internal fun labelLeft(bounds: LabelRect): Float = bounds.left
+/**
+ * Top of [target]'s label at [left]: its bounds' top, pushed right below the placed labels in the
+ * way. It may be pushed down to the bottom of its own bounds or of its nearest labeled [container]
+ * (a small badge's label then stays inside its poster). `null` when pushed further or more than
+ * [MAX_STACK_STEPS] times.
+ */
+private fun stackedTop(
+    target: LabelTarget,
+    left: Float,
+    size: LabelSize,
+    container: LabelRect?,
+    placedRects: FloatArray,
+    placedCount: Int,
+): Float? {
+    val bounds = target.bounds
+    var top = labelTop(bounds, 0f)
+    val limit = maxOf(bounds.bottom, container?.bottom ?: bounds.bottom)
+    var steps = 0
+    while (true) {
+        var below = -1f
+        for (i in 0 until placedCount) {
+            val index = i * 4
+            if (left < placedRects[index + 2] && placedRects[index] < left + size.width &&
+                top < placedRects[index + 3] && placedRects[index + 1] < top + size.height
+            ) {
+                below = maxOf(below, placedRects[index + 3])
+            }
+        }
+        if (below < 0f) return top
+        // 막은 라벨 바로 아래로 — 컨테이너 밖으로 나가거나 너무 깊게 쌓이면 생략
+        top = below
+        if (++steps > MAX_STACK_STEPS || top >= limit) return null
+    }
+}
+
+/** Bounds of the smallest placed label's composable that contains [target] (its nearest labeled ancestor). */
+private fun nearestContainer(target: LabelTarget, placedTargets: Array<LabelTarget?>, placedCount: Int): LabelRect? {
+    var nearest: LabelRect? = null
+    for (i in 0 until placedCount) {
+        val other = placedTargets[i]!!
+        if (other.depth >= target.depth || !other.bounds.contains(target.bounds)) continue
+        if (nearest == null || other.bounds.area < nearest.area) nearest = other.bounds
+    }
+    return nearest
+}
 
 /** Top edge of a label stacked [offsetY] below the top of [bounds]. */
 internal fun labelTop(bounds: LabelRect, offsetY: Float): Float = bounds.top + offsetY
