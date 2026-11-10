@@ -10,7 +10,7 @@ class NametagRulesTest {
     // ── selectLabelTargets ────────────────────────────────
 
     @Test
-    fun `같은 영역 체인은 가장 바깥쪽 이름만 남긴다`() {
+    fun `같은 영역 체인은 바깥부터 이름을 이어 붙여 라벨 하나로 만든다`() {
         val movieItem = NamedGroup("MovieItem", parent = null, bounds = item)
         val poster = NamedGroup("Poster", parent = movieItem, bounds = item)
         val theme = NamedGroup("AppTheme", parent = poster, bounds = item)
@@ -18,7 +18,8 @@ class NametagRulesTest {
 
         val targets = selectLabelTargets(listOf(movieItem, poster, theme, thumbnail))
 
-        assertEquals(listOf("MovieItem"), targets.map { it.name })
+        assertEquals(listOf("MovieItem › Poster › AppTheme › Thumbnail"), targets.map { it.name })
+        assertEquals(movieItem, targets.single().source)
     }
 
     @Test
@@ -48,7 +49,7 @@ class NametagRulesTest {
 
         val targets = selectLabelTargets(listOf(outer, inner))
 
-        assertEquals(listOf("Outer"), targets.map { it.name })
+        assertEquals(listOf("Outer › Inner"), targets.map { it.name })
     }
 
     @Test
@@ -71,7 +72,7 @@ class NametagRulesTest {
 
         val targets = selectLabelTargets(listOf(movieItem, thumbnail, label, badge))
 
-        assertEquals(listOf("MovieItem", "PosterBadges"), targets.map { it.name })
+        assertEquals(listOf("MovieItem › Thumbnail", "PosterBadges"), targets.map { it.name })
     }
 
     @Test
@@ -96,6 +97,67 @@ class NametagRulesTest {
         val targets = selectLabelTargets(listOf(screen, header, title, icon))
 
         assertEquals(listOf("Screen", "Header", "HeaderTitle", "HeaderIcon"), targets.map { it.name })
+    }
+
+    @Test
+    fun `중간 래퍼가 숨겨지면 체인이 끊겨 두 라벨이 된다`() {
+        val outer = NamedGroup("Outer", parent = null, bounds = item)
+        val hidden = NamedGroup("HiddenWrapper", parent = outer, bounds = null)
+        val inner = NamedGroup("Inner", parent = hidden, bounds = item)
+
+        val targets = selectLabelTargets(listOf(outer, hidden, inner))
+
+        assertEquals(listOf("Outer", "Inner"), targets.map { it.name })
+    }
+
+    @Test
+    fun `같은 깊이 형제는 세로 막대로 잇는다`() {
+        // Box 안에 같은 영역으로 겹친 두 자식
+        val box = NamedGroup("Box", parent = null, bounds = item)
+        val image = NamedGroup("Image", parent = box, bounds = item)
+        val scrim = NamedGroup("Scrim", parent = box, bounds = item)
+
+        val targets = selectLabelTargets(listOf(box, image, scrim))
+
+        assertEquals(listOf("Box › Image | Scrim"), targets.map { it.name })
+    }
+
+    @Test
+    fun `체인 안에 리스트 아이템이 있으면 머리를 리스트 아이템으로 센다`() {
+        // ItemWrapper 와 MovieItem(리스트 아이템)이 같은 영역 — 바깥 리스트 깊이로 세면 2단계라 빠짐
+        val section = NamedGroup("Section", parent = null, bounds = LabelRect(0f, 0f, 1000f, 600f), isListItem = true)
+        val row = NamedGroup("MovieRow", parent = section, bounds = LabelRect(0f, 50f, 1000f, 600f))
+        val wrapper = NamedGroup("ItemWrapper", parent = row, bounds = LabelRect(0f, 60f, 300f, 510f))
+        val movieItem = NamedGroup("MovieItem", parent = wrapper, bounds = LabelRect(0f, 60f, 300f, 510f), isListItem = true)
+
+        val targets = selectLabelTargets(listOf(section, row, wrapper, movieItem))
+
+        assertEquals(listOf("Section", "MovieRow", "ItemWrapper › MovieItem"), targets.map { it.name })
+    }
+
+    // ── fitChainName ──────────────────────────────────────
+
+    private val band = listOf("MultiBandContentInternal", "VodBasicBand", "TvingRowBand", "BandContainer")
+
+    // 한 글자 10px
+    private fun fit(levels: List<String>, maxWidth: Float) = fitChainName(levels, maxWidth) { it.length * 10f }
+
+    @Test
+    fun `한도 안이면 체인 이름을 그대로 쓴다`() {
+        assertEquals("MultiBandContentInternal › VodBasicBand › TvingRowBand › BandContainer", fit(band, 1000f))
+    }
+
+    @Test
+    fun `한도를 넘으면 바깥쪽 가운데 단계부터 줄이고 양 끝은 남긴다`() {
+        assertEquals("MultiBandContentInternal › … › TvingRowBand › BandContainer", fit(band, 600f))
+        assertEquals("MultiBandContentInternal › … › BandContainer", fit(band, 450f))
+    }
+
+    @Test
+    fun `양 끝만으로도 넘치면 가장 바깥 이름 하나만 쓴다`() {
+        // 포스터처럼 좁은 영역 — 옆 아이템 라벨을 밀어내지 않도록 1.0.2 처럼 바깥 이름만
+        assertEquals("MultiBandContentInternal", fit(band, 300f))
+        assertEquals("MultiBandContentInternal", fit(listOf("MultiBandContentInternal"), 100f))
     }
 
     // ── placeLabels ───────────────────────────────────────

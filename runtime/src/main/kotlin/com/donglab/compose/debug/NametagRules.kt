@@ -83,11 +83,25 @@ internal class NamedGroup(
 }
 
 /** @property depth labeled ancestors above it — parents are placed before their children */
+/** Between names of a same-bounds chain, outer to inner. */
+internal const val CHAIN_SEPARATOR = " › "
+
+/** Between names at the same depth of a chain (siblings stacked on the same bounds). */
+internal const val SIBLING_SEPARATOR = " | "
+
+/** Stands for the levels dropped from a chain name that is too long. */
+internal const val CHAIN_ELLIPSIS = "…"
+
+/**
+ * @property depth labeled ancestors above it — parents are placed before their children
+ * @property levels the chain behind [name], outer to inner (one entry per depth)
+ */
 internal data class LabelTarget(
     val name: String,
     val bounds: LabelRect,
     val source: NamedGroup? = null,
     val depth: Int = 0,
+    val levels: List<String> = listOf(name),
 )
 
 internal data class LabelSize(val width: Float, val height: Float)
@@ -107,25 +121,75 @@ internal data class PlacedLabel(
  * Picks the composables worth labeling.
  *
  * - nothing visible (effects, hidden dialogs, early returns, clipped out) → skipped
- * - same bounds as the nearest labeled ancestor → skipped, so a wrapper chain
- *   (`MovieItem › Poster › AppTheme › Thumbnail`) keeps only its outermost name
+ * - a wrapper chain with the same bounds (`MovieItem › Poster › AppTheme › Thumbnail`) becomes one
+ *   label on the outermost composable, named after the whole chain, outer to inner — the specific
+ *   name is often an inner one. Names at the same depth (siblings on the same bounds) join with `|`.
  * - inside a list item, only labels up to [maxDepthInListItem] levels deep are kept
- *   (`ShortcutItem` › `ShortcutTitle` kept, › `TitleLine` skipped)
+ *   (`ShortcutItem` › `ShortcutTitle` kept, › `TitleLine` skipped); a chain holding a list item
+ *   counts as that list item
  */
 internal fun selectLabelTargets(
     groups: List<NamedGroup>,
     tolerance: Float = SAME_BOUNDS_TOLERANCE_PX,
     maxDepthInListItem: Int = MAX_DEPTH_IN_LIST_ITEM,
 ): List<LabelTarget> {
-    val shown = groups.filter { group ->
-        val bounds = group.bounds ?: return@filter false
-        val parentBounds = group.parent?.bounds
-        parentBounds == null || !bounds.isCloseTo(parentBounds, tolerance)
+    // 같은 영역 체인은 바깥 그룹(머리) 하나에 모음 — 순회 순서상 부모가 먼저 온다고 가정하지 않음
+    val chains = LinkedHashMap<NamedGroup, MutableList<NamedGroup>>()
+    for (group in groups) {
+        if (group.bounds == null) continue
+        var head = group
+        while (head.hasSameBoundsAsParent(tolerance)) head = head.parent!!
+        chains.getOrPut(head) { ArrayList() } += group
     }
-    val shownSet = shown.toHashSet()
-    return shown
-        .filter { depthInListItem(it, shownSet) <= maxDepthInListItem }
-        .map { LabelTarget(it.name, it.bounds!!, it, depthOf(it)) }
+    val heads = chains.keys
+    val targets = ArrayList<LabelTarget>(chains.size)
+    for ((head, chain) in chains) {
+        if (depthInListItem(head, heads, chain.any { it.isListItem }) > maxDepthInListItem) continue
+        val levels = chainLevels(head, chain)
+        targets += LabelTarget(levels.joinToString(CHAIN_SEPARATOR), head.bounds!!, head, depthOf(head), levels)
+    }
+    return targets
+}
+
+private fun NamedGroup.hasSameBoundsAsParent(tolerance: Float): Boolean {
+    val bounds = bounds ?: return false
+    val parentBounds = parent?.bounds ?: return false
+    return bounds.isCloseTo(parentBounds, tolerance)
+}
+
+/** Names of a chain by distance from its [head], outer to inner; same distance joined with `|`. */
+private fun chainLevels(head: NamedGroup, chain: List<NamedGroup>): List<String> {
+    if (chain.size == 1) return listOf(head.name)
+    val byLevel = sortedMapOf<Int, MutableList<String>>()
+    for (group in chain) {
+        var level = 0
+        var ancestor: NamedGroup? = group
+        while (ancestor != null && ancestor !== head) {
+            level++
+            ancestor = ancestor.parent
+        }
+        byLevel.getOrPut(level) { ArrayList() } += group.name
+    }
+    return byLevel.values.map { it.joinToString(SIBLING_SEPARATOR) }
+}
+
+/**
+ * The chain name, shortened to fit [maxWidth] when needed.
+ *
+ * Drops levels from the outer middle first (inner names are usually the specific ones) and puts
+ * `…` in their place, keeping the outermost and innermost levels. When even that doesn't fit, only
+ * the outermost name is used — a narrow item (a poster) then reads like before instead of pushing
+ * its neighbors' labels down.
+ */
+internal fun fitChainName(levels: List<String>, maxWidth: Float, width: (String) -> Float): String {
+    val full = levels.joinToString(CHAIN_SEPARATOR)
+    if (width(full) <= maxWidth) return full
+    if (levels.size <= 2) return levels.first()
+    for (keepFrom in 2 until levels.size) {
+        val name = (listOf(levels.first(), CHAIN_ELLIPSIS) + levels.subList(keepFrom, levels.size)).joinToString(CHAIN_SEPARATOR)
+        if (width(name) <= maxWidth) return name
+    }
+    return levels.first()
 }
 
 /** Labeled ancestors of [group], shown or not. */
@@ -140,8 +204,8 @@ private fun depthOf(group: NamedGroup): Int {
 }
 
 /** Shown labels between [group] and its nearest list item. The item itself and anything outside a list = 0. */
-private fun depthInListItem(group: NamedGroup, shown: Set<NamedGroup>): Int {
-    if (group.isListItem) return 0
+private fun depthInListItem(group: NamedGroup, shown: Set<NamedGroup>, holdsListItem: Boolean = false): Int {
+    if (group.isListItem || holdsListItem) return 0
     var depth = 0
     var ancestor = group.parent
     while (ancestor != null) {

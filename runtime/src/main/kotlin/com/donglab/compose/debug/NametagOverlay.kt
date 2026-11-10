@@ -267,7 +267,11 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
             // 선택과 배치도 각각 한 단계씩
             try {
                 cycleTargets = traceSection("Nametag:select") {
-                    selectLabelTargets(groups).map { it.copy(bounds = it.bounds.offset(cycleDx, cycleDy)) }
+                    selectLabelTargets(groups).map { target ->
+                        // 체인 이름이 라벨이 붙는 영역보다 길면 가운데를 줄임 — 옆 아이템 라벨을 밀어내지 않도록
+                        val name = fitChainName(target.levels, target.bounds.width) { painter.measure(it).width }
+                        target.copy(name = name, bounds = target.bounds.offset(cycleDx, cycleDy))
+                    }
                 }
             } catch (t: Throwable) {
                 cycleGroups = null
@@ -299,6 +303,36 @@ internal class NametagOverlay(private val root: View) : ViewTreeObserver.OnPreDr
         if (!changed) return@traceSection
         labels = placed
         show(placed)
+        logSelection(groups, targets, placed)
+    }
+
+    /**
+     * Why names are shown or left out — only with `adb shell setprop log.tag.ComposableNametag DEBUG`.
+     * Logged when the result changes, so a still screen logs once.
+     */
+    private fun logSelection(groups: List<NamedGroup>, targets: List<LabelTarget>, placed: List<PlacedLabel>) {
+        val enabled = try {
+            android.util.Log.isLoggable(TAG, android.util.Log.DEBUG)
+        } catch (_: Throwable) {
+            false
+        }
+        if (!enabled) return
+        try {
+            val visible = groups.count { it.bounds != null }
+            val inChains = targets.sumOf { it.levels.size }
+            val placedNames = placed.mapTo(HashSet()) { it.name }
+            val noRoom = targets.filter { it.name !in placedNames }.map { it.name }
+            android.util.Log.d(
+                TAG,
+                "labels: visible=$visible → chains=${targets.size} (names in chains $inChains, " +
+                    "list depth / hidden skipped ${visible - inChains}) → placed=${placed.size}, no room=${noRoom.size}",
+            )
+            for (target in targets) {
+                if (target.levels.size > 1) android.util.Log.d(TAG, "  chain: ${target.levels.joinToString(CHAIN_SEPARATOR)} → ${target.name}")
+            }
+            for (name in noRoom) android.util.Log.d(TAG, "  no room: $name")
+        } catch (_: Throwable) {
+        }
     }
 
     /** Hands each ComposeView its labels; views left without labels drop their painter. */

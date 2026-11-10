@@ -33,7 +33,7 @@ See each Composable's name directly on screen, making layout debugging and code 
 
 - **Auto injection** — The Compiler Plugin injects labels at compile time without touching your existing code.
 - **Only what you see** — Labels follow the area each Composable actually drew. Composables that draw nothing (effects, themes) and views that are off screen or hidden are left out.
-- **No overlapping labels** — A wrapper chain covering the same area shows only its outermost name, repeated list items show one level inside, and labels are placed so they never overlap.
+- **No overlapping labels** — A wrapper chain covering the same area becomes one label with its names joined, repeated list items show one level inside, and labels are placed so they never overlap.
 - **Layout untouched** — Labels are drawn on the ComposeView's overlay, not inside your layout, so spacing and placement never change.
 - **Debug only** — The compiler plugin and runtime are applied only to `debug` builds. Release builds contain zero library code — no IR injection, no runtime dependency.
 - **Zero overhead** — Works via IR transformation at compile time. In release builds, nothing is injected or included at all. In debug builds with the overlay turned off, the injected call reads one state and returns — no overlay or scan is created.
@@ -197,7 +197,7 @@ At runtime the slot table is read the same way Layout Inspector does to find the
 |------|---------|
 | Nothing drawn → skipped | Effects, themes, dialogs that are not shown |
 | Off screen or hidden view → skipped | Items scrolled away, kept-alive tabs |
-| Wrapper chain with the same area → outermost name only | `MovieItem › Poster › Thumbnail` shows `MovieItem` |
+| Wrapper chain with the same area → one label, names joined outer to inner | `MovieItem › Poster › Thumbnail`; shortened to `MovieItem › … › Thumbnail` (or `MovieItem`) when wider than the item |
 | Inside a repeated list item → one level deep | `ShortcutItem › ShortcutIcon` shown, `IconImage` skipped |
 | Covered by a view on top → skipped | A screen behind a Fragment page opened in an `AndroidView` |
 
